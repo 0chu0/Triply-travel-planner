@@ -1,0 +1,1921 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Triply - 您的智能旅伴</title>
+    <!-- 引入 Google Fonts: Nunito (圆润主字体), Noto Serif SC (中文衬线，跟随 Figma 稿) -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <!-- 引入 FontAwesome 图标库 -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+
+    <style>
+      :root {
+        /* 配色方案：Triply —— 玫瑰粉 + 玻璃拟态（源自 Figma 视觉稿） */
+        --primary: #b84d6e;        /* 玫瑰主色（用户气泡/按钮渐变起点） */
+        --primary-light: #d4789a;  /* 浅玫瑰（渐变终点） */
+        --primary-deep: #7a2840;   /* 深梅子（标题/正文文字） */
+        --accent: #b84d6e;         /* 强调色（JS 内联样式引用，名称不可改） */
+        --accent-hover: #9c3d5b;
+
+        --sand-bg: #f7d8e4;        /* 页面渐变兜底色 */
+        --chat-bg: #fce8ee;        /* 聊天区兜底色（猫爪水彩图加载前的底色） */
+        --map-line: rgba(184, 77, 110, 0.08);
+
+        --glass-bg: rgba(255, 255, 255, 0.62);
+        --glass-border: rgba(255, 255, 255, 0.72);
+        --glass-shadow: 0 8px 48px rgba(184, 77, 110, 0.12);
+
+        /* 文字对比度均达 WCAG AA */
+        --text-main: #7a2840;      /* 深梅子正文（白底上约 9:1） */
+        --text-serif: #7a2840;
+        --text-light: #9c6f7c;     /* 次要玫瑰灰（白底上约 4.6:1） */
+        --white: #ffffff;
+
+        --radius-lg: 28px;
+        --radius-md: 16px;
+        --radius-sm: 10px;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      body {
+        font-family: "Nunito", "Noto Serif SC", serif;
+        color: var(--text-main);
+        height: 100vh;
+        overflow: hidden;
+        background: linear-gradient(
+          145deg,
+          #f5d6e0 0%,
+          #f9e0ea 40%,
+          #fce8ee 70%,
+          #f7d8e4 100%
+        );
+      }
+
+      /* 柔和滚动条（Figma：玫瑰 20% 透明） */
+      ::-webkit-scrollbar {
+        width: 5px;
+        height: 5px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(184, 77, 110, 0.2);
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(184, 77, 110, 0.4);
+      }
+
+      /* === 背景装饰元素 === */
+
+      /* 1. 等高线地图背景（玫瑰色描边） */
+      .bg-map-lines {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: url("data:image/svg+xml,%3Csvg width='100%25' height='100%25' viewBox='0 0 800 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23B84D6E' stroke-width='1' stroke-opacity='0.07'%3E%3Cpath d='M0 300 C 200 400 400 200 800 350' /%3E%3Cpath d='M0 320 C 220 420 420 220 800 370' /%3E%3Cpath d='M0 340 C 240 440 440 240 800 390' /%3E%3Cpath d='M0 100 C 300 0 500 150 800 50' /%3E%3Cpath d='M0 120 C 320 20 520 170 800 70' /%3E%3Cpath d='M-100 200 C 200 100 600 300 900 200' stroke-dasharray='10,10' stroke-opacity='0.05' /%3E%3C/g%3E%3C/svg%3E");
+        background-size: cover;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      /* 2. 飞行动画 */
+      .plane-container {
+        position: fixed;
+        top: 20%;
+        left: -100px;
+        z-index: 0;
+        opacity: 0.8;
+        animation: flyAcross 60s linear infinite;
+      }
+
+      .plane-icon {
+        font-size: 24px;
+        color: var(--primary);
+        transform: rotate(15deg);
+      }
+
+      .plane-trail {
+        position: absolute;
+        top: 12px;
+        right: 20px;
+        width: 100px;
+        height: 2px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(184, 77, 110, 0.35)
+        );
+      }
+
+      @keyframes flyAcross {
+        0% {
+          transform: translate(-100px, 0);
+        }
+        100% {
+          transform: translate(calc(100vw + 200px), -100px);
+        }
+      }
+
+      /* 主布局 */
+      .app-container {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        height: 100vh;
+        padding: 24px;
+        gap: 24px;
+        max-width: 1600px;
+        margin: 0 auto;
+      }
+
+      /* 玻璃拟态卡片通用样式（Figma glass-card） */
+      .glass-card {
+        background: var(--glass-bg);
+        backdrop-filter: blur(22px) saturate(1.6);
+        -webkit-backdrop-filter: blur(22px) saturate(1.6);
+        border: 1px solid var(--glass-border);
+        box-shadow: var(--glass-shadow);
+      }
+
+      /* === 登录/注册 === */
+      .auth-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          145deg,
+          #f5d6e0 0%,
+          #f9e0ea 40%,
+          #fce8ee 70%,
+          #f7d8e4 100%
+        );
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 100;
+        transition: opacity 0.3s ease;
+        overflow: hidden;
+      }
+
+      /* Bokeh 光斑（Figma 登录页装饰） */
+      .auth-overlay::before {
+        content: "";
+        position: absolute;
+        top: 12%;
+        left: 18%;
+        width: 320px;
+        height: 320px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.35);
+        filter: blur(60px);
+        pointer-events: none;
+      }
+      .auth-overlay::after {
+        content: "";
+        position: absolute;
+        bottom: 15%;
+        right: 14%;
+        width: 260px;
+        height: 260px;
+        border-radius: 50%;
+        background: rgba(255, 200, 220, 0.4);
+        filter: blur(70px);
+        pointer-events: none;
+      }
+
+      .auth-overlay.hidden {
+        display: none;
+      }
+
+      .auth-card {
+        width: 400px;
+        padding: 40px;
+        border-radius: var(--radius-lg);
+        background: rgba(255, 255, 255, 0.72);
+        backdrop-filter: blur(22px) saturate(1.6);
+        -webkit-backdrop-filter: blur(22px) saturate(1.6);
+        position: relative;
+        overflow: hidden;
+        /* 色差描边（chromatic aberration）+ 玫瑰投影 */
+        box-shadow:
+          -1.5px -1.5px 0 0 rgba(255, 80, 80, 0.18),
+          1.5px 1.5px 0 0 rgba(80, 180, 255, 0.18),
+          0 8px 48px rgba(184, 77, 110, 0.14),
+          0 2px 8px rgba(0, 0, 0, 0.05);
+      }
+
+      /* 邮票装饰 */
+      .stamp-decoration {
+        position: absolute;
+        top: -20px;
+        right: -20px;
+        width: 100px;
+        height: 100px;
+        border: 2px dashed var(--primary);
+        border-radius: 50%;
+        opacity: 0.18;
+        transform: rotate(20deg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "Nunito", sans-serif;
+        color: var(--primary);
+        font-weight: bold;
+        pointer-events: none;
+      }
+
+      .auth-header {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+
+      .auth-logo {
+        font-family: "Nunito", "Noto Serif SC", serif;
+        font-size: 32px;
+        font-weight: 800;
+        color: var(--primary-deep);
+        margin-bottom: 8px;
+        letter-spacing: 4px;
+      }
+
+      .auth-logo i {
+        font-size: 22px;
+        color: var(--primary);
+        margin-right: 8px;
+      }
+
+      .auth-subtitle {
+        font-family: "Nunito", sans-serif;
+        color: var(--text-light);
+        font-style: italic;
+      }
+
+      .auth-tabs {
+        display: flex;
+        position: relative;
+        border-bottom: 1px solid rgba(184, 77, 110, 0.15);
+        margin-bottom: 24px;
+      }
+
+      .auth-tab {
+        flex: 1;
+        padding: 12px;
+        background: none;
+        border: none;
+        font-family: inherit;
+        font-size: 15px;
+        font-weight: 500;
+        color: var(--text-light);
+        cursor: pointer;
+        position: relative;
+        transition: color 0.25s;
+      }
+
+      .auth-tab.active {
+        color: var(--primary);
+        font-weight: 700;
+      }
+
+      .auth-tab.active::after {
+        content: "";
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        width: 100%;
+        height: 2.5px;
+        border-radius: 2px;
+        background: linear-gradient(90deg, var(--primary), var(--primary-light));
+        box-shadow: 0 0 8px rgba(184, 77, 110, 0.5);
+      }
+
+      .form-group {
+        margin-bottom: 16px;
+      }
+
+      .form-group input {
+        width: 100%;
+        padding: 12px 16px;
+        border: 1px solid rgba(255, 200, 215, 0.7);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.55);
+        font-family: inherit;
+        font-size: 14px;
+        color: var(--text-main);
+        transition: all 0.25s;
+      }
+
+      .form-group input::placeholder {
+        color: #c498a8;
+      }
+
+      .form-group input:focus {
+        outline: none;
+        border-color: rgba(184, 77, 110, 0.4);
+        box-shadow: 0 0 0 3px rgba(184, 77, 110, 0.1);
+        background: rgba(255, 255, 255, 0.75);
+      }
+
+      .auth-btn {
+        width: 100%;
+        padding: 14px;
+        background: linear-gradient(
+          135deg,
+          #b84d6e 0%,
+          #c96882 60%,
+          #df94ab 100%
+        );
+        color: var(--white);
+        border: none;
+        border-radius: 16px;
+        font-family: inherit;
+        font-size: 16px;
+        font-weight: 800;
+        letter-spacing: 2px;
+        cursor: pointer;
+        transition: transform 0.15s, box-shadow 0.15s;
+        box-shadow: 0 4px 20px rgba(184, 77, 110, 0.36);
+      }
+
+      .auth-btn:hover {
+        transform: scale(1.015);
+        box-shadow: 0 6px 28px rgba(184, 77, 110, 0.48);
+      }
+
+      .register-fields {
+        display: none;
+      }
+      .register-fields.show {
+        display: block;
+      }
+
+      .api-config {
+        margin-top: 20px;
+        text-align: center;
+        font-size: 12px;
+      }
+      .api-config summary {
+        cursor: pointer;
+        color: var(--text-light);
+      }
+      .api-config input {
+        margin-top: 5px;
+        padding: 5px;
+        width: 80%;
+        text-align: center;
+      }
+
+      /* === 侧边栏 === */
+      .sidebar {
+        width: 280px;
+        border-radius: var(--radius-lg);
+        display: flex;
+        flex-direction: column;
+        background: rgba(255, 240, 244, 0.42);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.55);
+        box-shadow: var(--glass-shadow);
+      }
+
+      .sidebar-header {
+        padding: 32px 24px 20px;
+        border-bottom: 1px dashed rgba(184, 77, 110, 0.15);
+      }
+
+      .sidebar-logo-text {
+        font-family: "Nunito", "Noto Serif SC", serif;
+        font-size: 22px;
+        font-weight: 800;
+        color: var(--primary-deep);
+        letter-spacing: 2px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .user-passport {
+        margin-top: 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        background: rgba(184, 77, 110, 0.08);
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(184, 77, 110, 0.12);
+      }
+
+      .user-avatar-frame {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #b84d6e, #d4789a);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        box-shadow: 0 3px 10px rgba(184, 77, 110, 0.32);
+      }
+
+      .user-details h4 {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--primary-deep);
+      }
+      .user-details span {
+        font-size: 11px;
+        color: var(--text-light);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .new-chat-btn {
+        margin: 20px 24px;
+        padding: 12px;
+        border: 1.5px solid rgba(184, 77, 110, 0.35);
+        background: rgba(255, 255, 255, 0.5);
+        color: var(--primary);
+        border-radius: 12px;
+        cursor: pointer;
+        transition: background 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font-family: inherit;
+        font-weight: 700;
+        font-size: 13.5px;
+      }
+
+      .new-chat-btn:hover {
+        background: rgba(255, 255, 255, 0.8);
+      }
+
+      .conversations-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0 16px;
+      }
+
+      .section-label {
+        padding: 0 8px 8px;
+        font-size: 11px;
+        color: var(--text-light);
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        font-weight: 700;
+      }
+
+      .conversation-item {
+        position: relative;
+        padding: 14px;
+        margin-bottom: 8px;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.2s;
+        border-left: 3px solid transparent;
+        background: transparent;
+      }
+
+      .conversation-item:hover {
+        background: rgba(255, 255, 255, 0.5);
+      }
+
+      .conversation-item.active {
+        background: rgba(184, 77, 110, 0.14);
+        border-left-color: var(--primary);
+        box-shadow: 0 2px 8px rgba(184, 77, 110, 0.1);
+      }
+
+      .conversation-title {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--primary-deep);
+        margin-bottom: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .conversation-item.active .conversation-title {
+        font-weight: 700;
+      }
+
+      .conversation-time {
+        font-size: 11px;
+        color: var(--text-light);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .conversation-actions {
+        position: absolute;
+        top: 12px;
+        right: 10px;
+        display: none;
+        gap: 6px;
+      }
+
+      .conversation-item:hover .conversation-actions,
+      .conversation-item.active .conversation-actions {
+        display: flex;
+      }
+
+      .conv-action-btn {
+        width: 24px;
+        height: 24px;
+        border: none;
+        border-radius: 7px;
+        background: rgba(184, 77, 110, 0.12);
+        color: var(--primary-deep);
+        cursor: pointer;
+        font-size: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s;
+      }
+
+      .conv-action-btn:hover {
+        background: var(--primary);
+        color: #fff;
+      }
+
+      .conv-action-btn.danger:hover {
+        background: #d64550;
+      }
+
+      .conv-rename-input {
+        width: 95%;
+        border: 1px solid var(--primary);
+        border-radius: 6px;
+        padding: 2px 6px;
+        font-size: 13px;
+        color: var(--primary-deep);
+        background: #fff;
+        outline: none;
+        font-family: inherit;
+      }
+
+      .send-btn.stop {
+        background: #d64550 !important;
+      }
+
+      .logout-btn {
+        margin: 20px;
+        padding: 10px;
+        border: none;
+        background: none;
+        color: var(--text-light);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: inherit;
+        font-size: 13px;
+      }
+      .logout-btn:hover {
+        color: #b8404f;
+      }
+
+      /* === 聊天主窗口 === */
+      .chat-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        position: relative;
+      }
+
+      /* 聊天背景水印 */
+      .chat-watermark {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 300px;
+        color: var(--primary);
+        opacity: 0.04;
+        pointer-events: none;
+        z-index: -1;
+      }
+
+      .chat-header {
+        padding: 18px 28px;
+        background: rgba(255, 255, 255, 0.28);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.45);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .chat-title-group {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .chat-icon-wrapper {
+        width: 40px;
+        height: 40px;
+        background: #ffffff;
+        color: var(--primary-light);
+        border: 1.5px solid rgba(184, 77, 110, 0.15);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 17px;
+        box-shadow: 0 2px 10px rgba(184, 77, 110, 0.1);
+      }
+
+      .chat-info h2 {
+        font-family: "Nunito", "Noto Serif SC", serif;
+        font-size: 16px;
+        font-weight: 800;
+        color: var(--primary-deep);
+      }
+
+      .chat-info p {
+        font-size: 11.5px;
+        color: var(--text-light);
+        margin-top: 2px;
+      }
+
+      .location-badge {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--primary);
+        font-weight: 700;
+        background: rgba(184, 77, 110, 0.08);
+        border: 1px solid rgba(184, 77, 110, 0.2);
+        padding: 6px 12px;
+        border-radius: 20px;
+      }
+
+      .chat-messages {
+        flex: 1;
+        padding: 28px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        /* 水彩猫爪背景（Figma 视觉稿同款），底色兜底 */
+        background-color: var(--chat-bg);
+        background-image: url("chat-bg.jpg");
+        background-size: 100% calc(100% + 80px);
+        background-position: center -20px;
+        background-repeat: no-repeat;
+      }
+
+      /* 消息气泡 */
+      .message {
+        display: flex;
+        gap: 12px;
+        max-width: 800px;
+        animation: slideIn 0.3s ease;
+      }
+
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(8px) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      .message.user {
+        flex-direction: row-reverse;
+        align-self: flex-end;
+      }
+
+      .message-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        font-size: 14px;
+        margin-bottom: 2px;
+        align-self: flex-end;
+      }
+
+      .message.user .message-avatar {
+        background: linear-gradient(135deg, #b84d6e, #d4789a);
+        color: white;
+        font-weight: 700;
+        box-shadow: 0 2px 8px rgba(184, 77, 110, 0.25);
+      }
+      .message.assistant .message-avatar {
+        background: #ffffff;
+        color: var(--primary-light);
+        border: 1.5px solid rgba(184, 77, 110, 0.15);
+        box-shadow: 0 2px 10px rgba(184, 77, 110, 0.1);
+      }
+
+      .message-content {
+        padding: 12px 16px;
+        border-radius: 18px;
+        font-size: 14.5px;
+        line-height: 1.7;
+        font-weight: 500;
+        position: relative;
+        max-width: 62vw;
+      }
+
+      .message.assistant .message-content {
+        /* Figma bubble-ai：白玻璃 */
+        background: rgba(255, 255, 255, 0.82);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.85);
+        color: var(--primary-deep);
+        border-top-left-radius: 6px;
+        box-shadow: 0 2px 16px rgba(200, 120, 140, 0.1);
+      }
+
+      .message.user .message-content {
+        /* Figma bubble-user：玫瑰渐变 */
+        background: linear-gradient(135deg, #b84d6e, #d4789a);
+        color: #fff;
+        border-top-right-radius: 6px;
+        box-shadow: 0 2px 12px rgba(184, 77, 110, 0.32);
+      }
+
+      /* 欢迎屏幕 */
+      .welcome-screen {
+        text-align: center;
+        margin: auto;
+        max-width: 500px;
+        padding: 40px;
+        background: rgba(255, 255, 255, 0.72);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-radius: 20px;
+        border: 1px dashed rgba(184, 77, 110, 0.35);
+        box-shadow: 0 4px 18px rgba(184, 77, 110, 0.08);
+      }
+
+      .welcome-logo {
+        font-size: 46px;
+        color: var(--primary-light);
+        margin-bottom: 20px;
+      }
+
+      .welcome-title {
+        font-family: "Nunito", "Noto Serif SC", serif;
+        font-size: 26px;
+        font-weight: 800;
+        margin-bottom: 10px;
+        color: var(--primary-deep);
+      }
+
+      .welcome-text {
+        color: var(--text-light);
+        line-height: 1.7;
+      }
+
+      /* 输入区域 */
+      .chat-input-area {
+        padding: 16px 28px;
+        background: rgba(255, 255, 255, 0.28);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-top: 1px solid rgba(255, 255, 255, 0.45);
+      }
+
+      .chat-input-wrapper {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        background: rgba(255, 255, 255, 0.6);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 20px;
+        padding: 8px 8px 8px 20px;
+        box-shadow: 0 2px 12px rgba(184, 77, 110, 0.08);
+        transition: border 0.25s, box-shadow 0.25s;
+      }
+
+      .chat-input-wrapper:focus-within {
+        border-color: rgba(184, 77, 110, 0.4);
+        box-shadow: 0 0 0 3px rgba(184, 77, 110, 0.1);
+        background: rgba(255, 255, 255, 0.75);
+      }
+
+      .chat-input {
+        flex: 1;
+        border: none;
+        padding: 10px 0;
+        font-family: inherit;
+        font-size: 14.5px;
+        color: var(--primary-deep);
+        resize: none;
+        max-height: 120px;
+        background: transparent;
+      }
+
+      .chat-input::placeholder {
+        color: #c498a8;
+      }
+
+      .chat-input:focus {
+        outline: none;
+      }
+
+      .send-btn {
+        width: 40px;
+        height: 40px;
+        border: none;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #b84d6e, #d4789a);
+        color: var(--white);
+        font-size: 15px;
+        cursor: pointer;
+        transition: transform 0.15s, box-shadow 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        box-shadow: 0 3px 10px rgba(184, 77, 110, 0.35);
+      }
+
+      .send-btn:hover {
+        transform: scale(1.1);
+        box-shadow: 0 4px 16px rgba(184, 77, 110, 0.5);
+      }
+      .send-btn:disabled {
+        background: #e5cdd6;
+        box-shadow: none;
+        transform: none;
+        cursor: not-allowed;
+      }
+
+      /* 加载动画 */
+      .typing-dots {
+        display: flex;
+        gap: 4px;
+        padding: 10px;
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        background: var(--primary);
+        border-radius: 50%;
+        opacity: 0.5;
+        animation: bounce 1.4s infinite ease-in-out;
+      }
+      .dot:nth-child(1) {
+        animation-delay: -0.32s;
+      }
+      .dot:nth-child(2) {
+        animation-delay: -0.16s;
+      }
+      @keyframes bounce {
+        0%,
+        80%,
+        100% {
+          transform: scale(0);
+        }
+        40% {
+          transform: scale(1);
+        }
+      }
+
+      /* Toast */
+      .toast {
+        position: fixed;
+        top: 30px;
+        left: 50%;
+        transform: translateX(-50%) translateY(-100px);
+        background: var(--primary-deep);
+        color: white;
+        padding: 12px 24px;
+        border-radius: 50px;
+        box-shadow: 0 10px 30px rgba(122, 40, 64, 0.3);
+        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        z-index: 1000;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .toast.show {
+        transform: translateX(-50%) translateY(0);
+      }
+      .toast.error {
+        background: #b8404f;
+      }
+
+      /* 响应式 */
+      @media (max-width: 900px) {
+        .app-container {
+          flex-direction: column;
+          padding: 10px;
+        }
+        .sidebar {
+          width: 100%;
+          height: auto;
+          flex-direction: row;
+          align-items: center;
+          padding: 10px;
+        }
+        .sidebar-header {
+          padding: 0;
+          border: none;
+          flex: 1;
+        }
+        .user-passport,
+        .conversations-list,
+        .logout-btn,
+        .section-label {
+          display: none;
+        }
+        /* 窄屏收起侧边栏时额度条也隐藏；JS 用 inline display 控制显隐，故需 !important */
+        .quota-card {
+          display: none !important;
+        }
+        .new-chat-btn {
+          margin: 0;
+          padding: 8px;
+          width: 40px;
+          border: none;
+        }
+        .new-chat-btn span {
+          display: none;
+        }
+        .chat-header {
+          padding: 15px;
+        }
+      }
+
+      /* ===== 免费体验额度条 ===== */
+      .quota-card {
+        margin-top: 14px;
+        padding: 10px 12px;
+        border-radius: var(--radius-sm);
+        background: rgba(184, 77, 110, 0.08);
+        border: 1px solid rgba(184, 77, 110, 0.2);
+      }
+      .quota-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--text-light);
+        margin-bottom: 6px;
+      }
+      .quota-row strong {
+        color: var(--primary);
+        font-weight: 700;
+      }
+      .quota-track {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(184, 77, 110, 0.12);
+        overflow: hidden;
+      }
+      .quota-fill {
+        height: 100%;
+        width: 0%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #b84d6e, #d4789a);
+        transition: width 0.4s ease;
+      }
+      .quota-fill.warn {
+        background: linear-gradient(90deg, #d98c3f, #c1493f);
+      }
+      .quota-exhausted-tip {
+        margin-top: 8px;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #b8404f;
+      }
+      .quota-apply-btn {
+        margin-top: 8px;
+        width: 100%;
+        padding: 7px 10px;
+        border: none;
+        border-radius: var(--radius-sm);
+        background: linear-gradient(135deg, #b84d6e, #d4789a);
+        color: #fff;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .quota-apply-btn:hover {
+        background: linear-gradient(135deg, #a03d5c, #c96882);
+      }
+      .quota-apply-btn:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 装饰背景 -->
+    <div class="bg-map-lines"></div>
+    <div class="plane-container">
+      <div class="plane-trail"></div>
+      <i class="fa-solid fa-plane plane-icon"></i>
+    </div>
+
+    <!-- 登录弹窗 -->
+    <div class="auth-overlay" id="authOverlay">
+      <div class="auth-card glass-card">
+        <!-- 装饰性邮戳 -->
+        <div class="stamp-decoration">VISA</div>
+
+        <div class="auth-header">
+          <div class="auth-logo"><i class="fa-solid fa-compass"></i>Triply</div>
+          <p class="auth-subtitle">
+            Read Thousands of Books, Travel Thousands of Miles
+          </p>
+        </div>
+
+        <div class="auth-tabs">
+          <button
+            class="auth-tab active"
+            data-tab="login"
+            onclick="switchAuthTab('login')"
+          >
+            登 录
+          </button>
+          <button
+            class="auth-tab"
+            data-tab="register"
+            onclick="switchAuthTab('register')"
+          >
+            注 册
+          </button>
+        </div>
+
+        <form id="authForm" onsubmit="handleAuth(event)">
+          <div class="form-group">
+            <input
+              type="text"
+              id="username"
+              placeholder="通行证 / 用户名"
+              required
+            />
+          </div>
+          <div class="form-group register-fields" id="emailField">
+            <input type="email" id="email" placeholder="电子邮箱" />
+          </div>
+          <div class="form-group">
+            <input
+              type="password"
+              id="password"
+              placeholder="密钥 / 密码"
+              required
+            />
+          </div>
+          <button type="submit" class="auth-btn" id="authBtn">开启旅程</button>
+        </form>
+
+        <details class="api-config">
+          <summary>连接设置</summary>
+          <input type="text" id="apiBase" value="" placeholder="留空自动识别（推荐）；本地调试可填 http://localhost:8000" />
+        </details>
+      </div>
+    </div>
+
+    <!-- 主界面 -->
+    <div class="app-container">
+      <!-- 侧边栏：像一本护照 -->
+      <aside class="sidebar glass-card">
+        <div class="sidebar-header">
+          <div class="sidebar-logo-text">
+            <i class="fa-solid fa-mountain-sun"></i> Triply
+          </div>
+          <div class="user-passport">
+            <div class="user-avatar-frame" id="userAvatar">User</div>
+            <div class="user-details">
+              <h4 id="userName">访客</h4>
+              <span>PASSPORT</span>
+            </div>
+          </div>
+
+          <!-- 免费体验额度（登录后显示） -->
+          <div class="quota-card" id="quotaCard" style="display: none">
+            <div class="quota-row">
+              <span><i class="fa-solid fa-bolt"></i> 体验额度</span>
+              <strong id="quotaText">--</strong>
+            </div>
+            <div class="quota-track">
+              <div class="quota-fill" id="quotaFill"></div>
+            </div>
+            <div class="quota-exhausted-tip" id="quotaTip" style="display: none"></div>
+            <button
+              class="quota-apply-btn"
+              id="quotaApplyBtn"
+              style="display: none"
+              onclick="requestMoreQuota()"
+            >
+              申请更多额度
+            </button>
+          </div>
+        </div>
+
+        <button class="new-chat-btn" onclick="createNewConversation()">
+          <i class="fa-solid fa-route"></i> <span>规划新行程</span>
+        </button>
+
+        <div class="conversations-list">
+          <div class="section-label">Travel Logs</div>
+          <div id="conversationsList"></div>
+        </div>
+
+        <button class="logout-btn" onclick="logout()">
+          <i class="fa-solid fa-power-off"></i> 结束本次旅程
+        </button>
+      </aside>
+
+      <!-- 聊天主窗口 -->
+      <main class="chat-main glass-card">
+        <!-- 水印 -->
+        <i class="fa-solid fa-earth-asia chat-watermark"></i>
+
+        <div class="chat-header">
+          <div class="chat-title-group">
+            <div class="chat-icon-wrapper">
+              <i class="fa-solid fa-robot"></i>
+            </div>
+            <div class="chat-info">
+              <h2 id="chatTitle">行程助手</h2>
+              <p>AI Travel Assistant</p>
+            </div>
+          </div>
+          <div class="location-badge">
+            <i class="fa-solid fa-location-dot"></i> 准备出发
+          </div>
+        </div>
+
+        <div class="chat-messages" id="chatMessages">
+          <div class="welcome-screen">
+            <div class="welcome-logo">
+              <i class="fa-solid fa-paper-plane"></i>
+            </div>
+            <h3 class="welcome-title">欢迎使用 Triply</h3>
+            <p class="welcome-text">
+              告诉我你想去哪里？我可以帮你规划路线、寻找隐秘的沙滩、预订最棒的日落景观位。
+            </p>
+          </div>
+        </div>
+
+        <div class="chat-input-area">
+          <div class="chat-input-wrapper">
+            <textarea
+              class="chat-input"
+              id="chatInput"
+              placeholder="输入目的地，例如：马尔代夫的水上飞机体验..."
+              rows="1"
+              onkeydown="handleInputKeydown(event)"
+            ></textarea>
+            <button class="send-btn" id="sendBtn" onclick="onSendButtonClick()" title="发送">
+              <i class="fa-regular fa-paper-plane"></i>
+            </button>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div class="toast" id="toast">
+      <i class="fa-solid fa-info-circle"></i> <span id="toastMsg"></span>
+    </div>
+
+    <script>
+      // === 逻辑代码保持不变，仅适配样式类名 ===
+
+      let state = {
+        token: localStorage.getItem("token") || "",
+        user: JSON.parse(localStorage.getItem("user") || "null"),
+        currentConversationId: null,
+        conversations: [],
+        isLoading: false,
+        abortController: null,
+      };
+
+      const getApiBase = () => {
+        const input = (document.getElementById("apiBase").value || "").trim();
+        if (input) return input.replace(/\/+$/, "");
+        // 页面由后端托管（http/https 打开）→ 默认同源；本地 file:// 打开 → 默认本机后端
+        if (location.protocol === "http:" || location.protocol === "https:") {
+          return location.origin;
+        }
+        return "http://localhost:8000";
+      };
+
+      document.addEventListener("DOMContentLoaded", () => {
+        if (state.token && state.user) {
+          hideAuthOverlay();
+          updateUserInfo();
+          loadConversations();
+          loadUsage();
+        }
+        autoResizeTextarea();
+      });
+
+      function switchAuthTab(tab) {
+        const tabs = document.querySelectorAll(".auth-tab");
+        const emailField = document.getElementById("emailField");
+        const emailInput = document.getElementById("email");
+        const authBtn = document.getElementById("authBtn");
+
+        tabs.forEach((t) => t.classList.remove("active"));
+        document.querySelector(`[data-tab="${tab}"]`).classList.add("active");
+
+        if (tab === "register") {
+          emailField.classList.add("show");
+          emailInput.required = true;
+          authBtn.textContent = "注册通行证";
+        } else {
+          emailField.classList.remove("show");
+          emailInput.required = false;
+          authBtn.textContent = "开启旅程";
+        }
+      }
+
+      async function handleAuth(e) {
+        e.preventDefault();
+        const isRegister =
+          document.querySelector(".auth-tab.active").dataset.tab === "register";
+        const username = document.getElementById("username").value;
+        const email = document.getElementById("email").value;
+        const password = document.getElementById("password").value;
+        const btn = document.getElementById("authBtn");
+
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 验证中...';
+        btn.disabled = true;
+
+        try {
+          let response;
+          const endpoint = isRegister
+            ? "/api/v1/users/register"
+            : "/api/v1/users/login";
+          const body = isRegister
+            ? { username, email, password }
+            : { username, password };
+
+          response = await fetch(`${getApiBase()}${endpoint}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            state.token = data.access_token;
+            state.user = data.user;
+            localStorage.setItem("token", state.token);
+            localStorage.setItem("user", JSON.stringify(state.user));
+            showToast(isRegister ? "欢迎加入Triply！" : "欢迎回来！");
+            hideAuthOverlay();
+            updateUserInfo();
+            loadConversations();
+            loadUsage();
+          } else {
+            showToast(data.detail || "操作失败", true);
+          }
+        } catch (error) {
+          showToast("网络连接异常", true);
+        } finally {
+          btn.innerHTML = isRegister ? "注册通行证" : "开启旅程";
+          btn.disabled = false;
+        }
+      }
+
+      function hideAuthOverlay() {
+        document.getElementById("authOverlay").classList.add("hidden");
+      }
+      function showAuthOverlay() {
+        document.getElementById("authOverlay").classList.remove("hidden");
+      }
+
+      function updateUserInfo() {
+        if (state.user) {
+          document.getElementById("userName").textContent =
+            state.user.username || "旅行者";
+          // 提取首字母
+          const name = state.user.username || state.user.email || "U";
+          document.getElementById("userAvatar").textContent =
+            name[0].toUpperCase();
+        }
+      }
+
+      // ===== 免费体验额度（每个账号有 token 上限，超出后暂停对话） =====
+      async function loadUsage() {
+        if (!state.token) return;
+        try {
+          const res = await fetch(`${getApiBase()}/api/v1/users/usage`, {
+            headers: { Authorization: `Bearer ${state.token}` },
+          });
+          if (res.status === 401) return logout();
+          if (!res.ok) return;
+          renderQuota(await res.json());
+        } catch (e) {
+          /* 静默失败：额度条不是核心功能，不打扰用户 */
+        }
+      }
+
+      function renderQuota(u) {
+        if (!u) return;
+        const card = document.getElementById("quotaCard");
+        const fill = document.getElementById("quotaFill");
+        const text = document.getElementById("quotaText");
+        const tip = document.getElementById("quotaTip");
+        const btn = document.getElementById("quotaApplyBtn");
+        if (!card) return;
+
+        card.style.display = "block";
+
+        // 管理者额度无限：quota 设为极大值（>= 1e9）时不再显示大数字，改显「无限」
+        const isUnlimited = (u.quota_tokens || 0) >= 1e9;
+        if (isUnlimited) {
+          text.textContent = "管理者额度无限";
+          fill.style.width = "100%";
+          fill.classList.remove("warn");
+          tip.style.display = "none";
+          btn.style.display = "none";
+          return;
+        }
+
+        fill.style.width = Math.min(100, u.percent || 0) + "%";
+        fill.classList.toggle("warn", (u.percent || 0) >= 80 || !!u.exceeded);
+        text.textContent = `${formatTokens(u.remaining_tokens)} / ${formatTokens(
+          u.quota_tokens
+        )}`;
+
+        if (u.exceeded) {
+          tip.style.display = "block";
+          tip.innerHTML =
+            "免费体验额度已用尽，对话服务已暂停。" +
+            (u.contact ? `可联系：${escapeHtml(u.contact)}` : "可提交申请获取更多额度。");
+          btn.style.display = "block";
+        } else {
+          tip.style.display = "none";
+          btn.style.display = "none";
+        }
+      }
+
+      function formatTokens(n) {
+        if (n === undefined || n === null) return "--";
+        if (n >= 10000) return (n / 10000).toFixed(1) + "万";
+        return String(n);
+      }
+
+      async function requestMoreQuota() {
+        const btn = document.getElementById("quotaApplyBtn");
+        btn.disabled = true;
+        btn.textContent = "提交中...";
+        try {
+          const res = await fetch(
+            `${getApiBase()}/api/v1/users/quota-request`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${state.token}`,
+              },
+              body: JSON.stringify({
+                reason: "免费体验额度已用尽，希望继续体验",
+              }),
+            }
+          );
+          const data = await res.json().catch(() => ({}));
+          const msg =
+            typeof data.message === "string"
+              ? data.message
+              : typeof data.detail === "string"
+              ? data.detail
+              : "申请已提交，请等待管理员处理";
+          showToast(msg);
+          if (data.contact) {
+            document.getElementById(
+              "quotaTip"
+            ).innerHTML += `<br>联系方式：${escapeHtml(data.contact)}`;
+          }
+          btn.textContent = "申请已提交";
+        } catch (e) {
+          showToast("申请提交失败，请稍后重试", true);
+          btn.disabled = false;
+          btn.textContent = "申请更多额度";
+        }
+      }
+
+      function logout() {
+        state.token = "";
+        state.user = null;
+        state.currentConversationId = null;
+        state.conversations = [];
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        showAuthOverlay();
+        clearChatMessages();
+        document.getElementById("conversationsList").innerHTML = "";
+        showToast("已退出旅程");
+      }
+
+      async function loadConversations() {
+        try {
+          const response = await fetch(`${getApiBase()}/api/v1/conversations`, {
+            headers: { Authorization: `Bearer ${state.token}` },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            state.conversations = Array.isArray(data)
+              ? data
+              : data.conversations || [];
+            renderConversationsList();
+          } else if (response.status === 401) logout();
+        } catch (error) {
+          console.error(error);
+        }
+      }
+
+      function renderConversationsList() {
+        const container = document.getElementById("conversationsList");
+        if (state.conversations.length === 0) {
+          container.innerHTML =
+            '<div style="padding:20px; text-align:center; color:var(--text-light); font-size:12px;">暂无行程记录</div>';
+          return;
+        }
+        container.innerHTML = state.conversations
+          .map(
+            (conv) => `
+                <div class="conversation-item ${
+                  conv.id === state.currentConversationId ? "active" : ""
+                }"
+                     onclick="switchConversation('${conv.id}')">
+                    <div class="conversation-title" id="conv-title-${
+                      conv.id
+                    }"><i class="fa-solid fa-map-pin" style="font-size:10px; margin-right:5px; color:var(--accent)"></i>${escapeHtml(
+                      conv.title || "新行程"
+                    )}</div>
+                    <div class="conversation-time">
+                        <i class="fa-regular fa-clock" style="font-size:10px;"></i> ${formatTime(
+                          conv.updated_at || conv.created_at
+                        )}
+                    </div>
+                    <div class="conversation-actions">
+                        <button class="conv-action-btn" title="重命名" onclick="event.stopPropagation(); renameConversation('${
+                          conv.id
+                        }')"><i class="fa-solid fa-pen"></i></button>
+                        <button class="conv-action-btn danger" title="删除" onclick="event.stopPropagation(); deleteConversation('${
+                          conv.id
+                        }')"><i class="fa-solid fa-trash-can"></i></button>
+                    </div>
+                </div>
+            `
+          )
+          .join("");
+      }
+
+      async function createNewConversation() {
+        try {
+          const response = await fetch(`${getApiBase()}/api/v1/conversations`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${state.token}`,
+            },
+            body: JSON.stringify({ title: "新行程" }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            state.currentConversationId = data.id;
+            await loadConversations();
+            clearChatMessages();
+            document.getElementById("chatTitle").textContent = "新行程";
+            showToast("新行程已创建");
+          }
+        } catch (error) {
+          showToast("创建失败", true);
+        }
+      }
+
+      async function switchConversation(id) {
+        state.currentConversationId = id;
+        renderConversationsList();
+
+        // 获取标题
+        try {
+          const res = await fetch(
+            `${getApiBase()}/api/v1/conversations/${id}`,
+            {
+              headers: { Authorization: `Bearer ${state.token}` },
+            }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            document.getElementById("chatTitle").textContent = data.title;
+          }
+        } catch (e) {}
+
+        // 获取历史
+        try {
+          const res = await fetch(`${getApiBase()}/api/v1/chat/history/${id}`, {
+            headers: { Authorization: `Bearer ${state.token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const msgs = Array.isArray(data) ? data : data.messages || [];
+            renderMessages(msgs);
+          } else clearChatMessages();
+        } catch (e) {
+          clearChatMessages();
+        }
+      }
+
+      async function renameConversation(id) {
+        const conv = state.conversations.find((c) => c.id === id);
+        if (!conv) return;
+        const titleEl = document.getElementById(`conv-title-${id}`);
+        if (!titleEl || titleEl.querySelector("input")) return;
+        const rawTitle = conv.title || "新行程";
+
+        titleEl.innerHTML = "";
+        const input = document.createElement("input");
+        input.className = "conv-rename-input";
+        input.value = rawTitle;
+        titleEl.appendChild(input);
+        input.focus();
+        input.select();
+
+        let done = false;
+        const finish = async (save) => {
+          if (done) return;
+          done = true;
+          const newTitle = input.value.trim();
+          if (!save || !newTitle || newTitle === rawTitle) {
+            renderConversationsList();
+            return;
+          }
+          try {
+            const res = await fetch(
+              `${getApiBase()}/api/v1/conversations/${id}`,
+              {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${state.token}`,
+                },
+                body: JSON.stringify({ title: newTitle }),
+              }
+            );
+            if (res.ok) {
+              showToast("行程已重命名");
+              if (state.currentConversationId === id) {
+                document.getElementById("chatTitle").textContent = newTitle;
+              }
+            } else {
+              showToast("重命名失败", true);
+            }
+          } catch (e) {
+            showToast("重命名失败", true);
+          }
+          await loadConversations();
+        };
+
+        input.addEventListener("keydown", (e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") finish(true);
+          if (e.key === "Escape") finish(false);
+        });
+        input.addEventListener("blur", () => finish(true));
+        input.addEventListener("click", (e) => e.stopPropagation());
+      }
+
+      async function deleteConversation(id) {
+        if (!confirm("确定删除这条行程吗？删除后聊天记录将不再显示。")) return;
+        try {
+          const res = await fetch(
+            `${getApiBase()}/api/v1/conversations/${id}`,
+            {
+              method: "DELETE",
+              headers: { Authorization: `Bearer ${state.token}` },
+            }
+          );
+          if (res.ok) {
+            showToast("行程已删除");
+            if (state.currentConversationId === id) {
+              state.currentConversationId = null;
+              clearChatMessages();
+              document.getElementById("chatTitle").textContent = "Triply";
+            }
+            await loadConversations();
+          } else {
+            showToast("删除失败", true);
+          }
+        } catch (e) {
+          showToast("删除失败", true);
+        }
+      }
+
+      function renderMessages(messages) {
+        const container = document.getElementById("chatMessages");
+        if (messages.length === 0) {
+          clearChatMessages();
+          return;
+        }
+        container.innerHTML = messages
+          .map(
+            (msg) => `
+                <div class="message ${
+                  msg.role
+                }" id="msg-${Date.now()}-${Math.random()}">
+                    <div class="message-avatar"><i class="fa-solid ${
+                      msg.role === "user" ? "fa-user" : "fa-robot"
+                    }"></i></div>
+                    <div class="message-content">${escapeHtml(
+                      msg.content
+                    )}</div>
+                </div>
+            `
+          )
+          .join("");
+        container.scrollTop = container.scrollHeight;
+      }
+
+      function clearChatMessages() {
+        document.getElementById("chatMessages").innerHTML = `
+                <div class="welcome-screen">
+                    <div class="welcome-logo"><i class="fa-solid fa-paper-plane"></i></div>
+                    <h3 class="welcome-title">欢迎使用 Triply</h3>
+                    <p class="welcome-text">告诉我你想去哪里？我可以帮你规划路线、寻找隐秘的沙滩、预订最棒的日落景观位。</p>
+                </div>
+            `;
+      }
+
+      function onSendButtonClick() {
+        // AI 回答期间，发送键（小飞机）变为暂停键；再次点击即暂停生成
+        if (state.isLoading) {
+          stopGeneration();
+        } else {
+          sendMessage();
+        }
+      }
+
+      function setSendButtonLoading(loading) {
+        const btn = document.getElementById("sendBtn");
+        btn.classList.toggle("stop", loading);
+        btn.innerHTML = loading
+          ? '<i class="fa-solid fa-pause"></i>'
+          : '<i class="fa-regular fa-paper-plane"></i>';
+        btn.title = loading ? "暂停生成" : "发送";
+      }
+
+      function stopGeneration() {
+        if (state.abortController) {
+          state.abortController.abort();
+        }
+      }
+
+      async function sendMessage() {
+        const input = document.getElementById("chatInput");
+        const content = input.value.trim();
+        if (!content || state.isLoading) return;
+
+        if (!state.currentConversationId) {
+          await createNewConversation();
+          if (!state.currentConversationId) return;
+        }
+
+        state.isLoading = true;
+        state.abortController = new AbortController();
+        setSendButtonLoading(true);
+
+        // 移除欢迎页
+        const welcome = document.querySelector(".welcome-screen");
+        if (welcome) welcome.remove();
+
+        // 用户消息
+        addMessage("user", content);
+        input.value = "";
+        input.style.height = "auto";
+
+        // 助手Loading
+        const loadingId = addLoading();
+        let fullText = "";
+        let msgId = null;
+
+        try {
+          const res = await fetch(
+            `${getApiBase()}/api/v1/chat/stream/${state.currentConversationId}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${state.token}`,
+              },
+              body: JSON.stringify({ content }),
+              signal: state.abortController.signal,
+            }
+          );
+
+          removeMessage(loadingId);
+
+          // 额度用尽：后端返回 402，提示并给出申请入口
+          if (res.status === 402) {
+            const data = await res.json().catch(() => ({}));
+            const detail =
+              data && typeof data.detail === "object" ? data.detail : {};
+            renderQuota({
+              remaining_tokens: detail.remaining_tokens || 0,
+              quota_tokens: detail.quota_tokens || 0,
+              percent: detail.percent || 100,
+              exceeded: true,
+              contact: detail.contact || "",
+            });
+            showToast("免费体验额度已用尽，可申请更多额度", true);
+            state.isLoading = false;
+            state.abortController = null;
+            setSendButtonLoading(false);
+            return;
+          }
+
+          if (
+            res.ok &&
+            res.headers.get("content-type")?.includes("event-stream")
+          ) {
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            msgId = addMessage("assistant", "");
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const chunk = decoder.decode(value);
+              const lines = chunk.split("\n");
+              for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                  const data = line.slice(6);
+                  if (data === "[DONE]") continue;
+                  try {
+                    const parsed = JSON.parse(data);
+                    if (parsed.type === "usage") {
+                      // 每轮对话结束后同步最新额度
+                      renderQuota(parsed);
+                    } else if (parsed.type === "error") {
+                      fullText += `\n\n[出错了] ${parsed.message || "服务异常"}`;
+                      updateMessage(msgId, fullText);
+                    } else if (parsed.content) {
+                      fullText += parsed.content;
+                      updateMessage(msgId, fullText);
+                    }
+                  } catch (e) {
+                    fullText += data;
+                    updateMessage(msgId, fullText);
+                  }
+                }
+              }
+            }
+          } else {
+            const data = await res.json();
+            const msg =
+              typeof data.detail === "string"
+                ? data.detail
+                : data.detail?.message ||
+                  data.content ||
+                  data.message ||
+                  JSON.stringify(data);
+            addMessage("assistant", msg);
+          }
+        } catch (e) {
+          removeMessage(loadingId);
+          if (e && e.name === "AbortError") {
+            // 用户主动暂停：保留已生成的部分内容
+            if (msgId) {
+              updateMessage(msgId, (fullText || "") + "\n\n⏸️ 已暂停生成");
+            } else {
+              addMessage("assistant", "⏸️ 已暂停生成");
+            }
+          } else {
+            addMessage("assistant", "连接中断，请稍后重试。");
+          }
+        }
+
+        state.isLoading = false;
+        state.abortController = null;
+        setSendButtonLoading(false);
+      }
+
+      function addMessage(role, text) {
+        const container = document.getElementById("chatMessages");
+        const id = "msg-" + Date.now();
+        const div = document.createElement("div");
+        div.className = `message ${role}`;
+        div.id = id;
+        div.innerHTML = `
+                <div class="message-avatar"><i class="fa-solid ${
+                  role === "user" ? "fa-user" : "fa-robot"
+                }"></i></div>
+                <div class="message-content">${escapeHtml(text)}</div>
+            `;
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+        return id;
+      }
+
+      function updateMessage(id, text) {
+        const el = document.getElementById(id);
+        if (el) {
+          el.querySelector(".message-content").innerHTML = escapeHtml(text);
+          document.getElementById("chatMessages").scrollTop =
+            document.getElementById("chatMessages").scrollHeight;
+        }
+      }
+
+      function addLoading() {
+        const container = document.getElementById("chatMessages");
+        const id = "loading-" + Date.now();
+        const div = document.createElement("div");
+        div.className = "message assistant";
+        div.id = id;
+        div.innerHTML = `
+                <div class="message-avatar"><i class="fa-solid fa-robot"></i></div>
+                <div class="message-content">
+                    <div class="typing-dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+                </div>
+            `;
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+        return id;
+      }
+
+      function removeMessage(id) {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+      }
+
+      function handleInputKeydown(e) {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      }
+
+      function autoResizeTextarea() {
+        const el = document.getElementById("chatInput");
+        el.addEventListener("input", function () {
+          this.style.height = "auto";
+          this.style.height = Math.min(this.scrollHeight, 120) + "px";
+        });
+      }
+
+      function showToast(msg, isError = false) {
+        const t = document.getElementById("toast");
+        document.getElementById("toastMsg").textContent = msg;
+        t.className = `toast show ${isError ? "error" : ""}`;
+        setTimeout(() => t.classList.remove("show"), 3000);
+      }
+
+      function formatTime(str) {
+        if (!str) return "";
+        const d = new Date(str);
+        return `${d.getMonth() + 1}月${d.getDate()}日`;
+      }
+
+      function escapeHtml(text) {
+        if (!text) return "";
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML.replace(/\n/g, "<br>");
+      }
+    </script>
+  </body>
+</html>

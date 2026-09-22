@@ -1,0 +1,32 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets & runtime artifacts
+.env
+logs/
+data/vectorstore/
+update.tar.gz
+
+# IDE
+.idea/
+.vscode/
+
+# Local tooling / agent memory
+.workbuddy/
+
+# Logs & local DB
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store

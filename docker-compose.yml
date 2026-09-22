@@ -1,0 +1,21 @@
+version: '3.8'
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: travel_backend
+    restart: unless-stopped
+    env_file:
+      - .env                     # 注入 APP_PORT=8000 / POSTGRES_* / REDIS_* / 各 API Key / Langfuse
+    network_mode: host           # 后端通过 localhost 直连同主机的 postgres/redis
+    volumes:
+      - ./data:/app/data         # RAG 文档 + 预建 chroma 向量库
+      - ./logs:/app/logs         # 日志落盘，对应 logger.py 写 logs/
+      - ./frontend:/app/frontend # 前端热更新挂载：改前端只需 force-recreate，免重建镜像
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

@@ -1,0 +1,13 @@
+.venv
+.idea
+__pycache__
+.pytest_cache
+.workbuddy
+node_modules
+tests
+scripts/logs
+app/logs
+logs
+.git
+data
+*.md
