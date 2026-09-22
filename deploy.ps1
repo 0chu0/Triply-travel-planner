@@ -81,23 +81,51 @@ function Get-TrackedFiles {
 }
 
 # 用 git 判断"本次改了哪些文件"（更可靠）；无 git 仓库时退回全量
+# 覆盖四类来源：已暂存 + 未暂存 + 未跟踪 + 已提交但尚未 push 的提交
+# （最后一类很关键：工作树干净时前两类全为空，只有它能识别出改动）
 function Get-ChangedFiles {
-    $gitChanged = $null
+    $gitChanged = @()
     try {
         $staged = @(git -C $LOCAL_ROOT diff --cached --name-only 2>$null)
         $unstaged = @(git -C $LOCAL_ROOT diff --name-only 2>$null)
         $untracked = @(git -C $LOCAL_ROOT ls-files --others --exclude-standard 2>$null)
-        $gitChanged = @($staged + $unstaged + $untracked | Where-Object { $_ } | Sort-Object -Unique)
-        # 只保留参与部署的文件（app/scripts/frontend/.env）
-        $gitChanged = @($gitChanged | Where-Object {
-            $_ -match "^(app|scripts|frontend)/" -or $_ -eq ".env"
-        })
-    } catch { $gitChanged = $null }
+        $unpushed = @(git -C $LOCAL_ROOT diff --name-only "@{u}..HEAD" 2>$null)
+        if ($unpushed.Count -eq 0) {
+            # 尚未设置上游分支时退回和 origin/master 比
+            $unpushed = @(git -C $LOCAL_ROOT diff --name-only "origin/master..HEAD" 2>$null)
+        }
+        $gitChanged = @($staged + $unstaged + $untracked + $unpushed |
+            Where-Object { $_ } | Sort-Object -Unique)
+        # 只保留参与部署的文件（app/scripts/frontend）
+        $gitChanged = @($gitChanged | Where-Object { $_ -match "^(app|scripts|frontend)/" })
+    } catch { $gitChanged = @() }
 
-    if ($null -ne $gitChanged -and $gitChanged.Count -gt 0) {
-        return @($gitChanged | ForEach-Object { Join-Path $LOCAL_ROOT ($_ -replace "/", "\") })
+    return @($gitChanged | ForEach-Object { Join-Path $LOCAL_ROOT ($_ -replace "/", "\") })
+}
+
+# .env 被 .gitignore 忽略，git 永远感知不到它 → 用内容哈希与"上次已上传"的哈希比较
+function Test-EnvChanged {
+    $envPath = Join-Path $LOCAL_ROOT ".env"
+    if (-not (Test-Path $envPath)) { return $false }
+    $marker = Join-Path $LOCAL_ROOT ".workbuddy\.deploy_env_hash"
+    $last = ""
+    if (Test-Path $marker) {
+        $last = (Get-Content $marker -Raw -ErrorAction SilentlyContinue)
+        if ($null -eq $last) { $last = "" }
+        $last = $last.Trim()
     }
-    return $null
+    $now = (Get-FileHash -Path $envPath -Algorithm SHA256).Hash
+    return ($now -ne $last)
+}
+
+# 上传成功后记录 .env 的内容哈希，作为下次比较基准
+function Save-EnvHash {
+    $envPath = Join-Path $LOCAL_ROOT ".env"
+    if (-not (Test-Path $envPath)) { return }
+    $dir = Join-Path $LOCAL_ROOT ".workbuddy"
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    (Get-FileHash -Path $envPath -Algorithm SHA256).Hash |
+        Set-Content -Encoding ASCII (Join-Path $dir ".deploy_env_hash")
 }
 
 $files = @()
@@ -109,12 +137,18 @@ if ($All) {
         Where-Object { $_.FullName -notmatch "__pycache__|\.pyc$" })
     Log "模式: 仅前端（共 $($files.Count) 个）" Yellow
 } else {
-    $files = @(Get-ChangedFiles)
+    # 注意：Get-ChangedFiles 返回空数组时用 @() 收，避免 @($null) 变成"含 1 个 null 元素"
+    $files = @(Get-ChangedFiles | Where-Object { $_ })
+    # .env 被 gitignore，git 感知不到；单独用内容哈希判断是否变化
+    $envChanged = Test-EnvChanged
+    if ($envChanged) { $files += (Join-Path $LOCAL_ROOT ".env") }
     if ($files.Count -eq 0) {
-        LogWarn "未检测到改动文件（可能不是 git 仓库，或确实没有改动）。改用全量上传。"
+        LogWarn "未检测到改动文件（工作树干净且与上游一致），或不是 git 仓库。改用全量上传。"
         $files = @(Get-TrackedFiles)
+        Log "模式: 全量上传（共 $($files.Count) 个文件）" Yellow
+    } else {
+        Log "模式: 增量同步（本次改动 $($files.Count) 个文件）" Yellow
     }
-    Log "模式: 增量同步（本次改动 $($files.Count) 个文件）" Yellow
 }
 
 if ($files.Count -eq 0) {
@@ -182,6 +216,9 @@ if ($failBuckets -gt 0) {
     LogErr "有上传失败，中止部署（避免半成品上线）。可重新运行本脚本重试。"
     exit 1
 }
+
+# 上传成功后才记录 .env 哈希，供下次增量比较
+if ($hasEnv) { Save-EnvHash }
 
 # ---------- 3. 重建 / 重启容器 ----------
 $needBuild = $Build -or $hasBackend   # 后端代码改动 → 必须 --build
