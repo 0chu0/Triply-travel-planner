@@ -10,7 +10,7 @@ Token 配额工具：读写账号用量、判断是否超限、估算兜底
 """
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings

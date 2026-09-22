@@ -14,6 +14,68 @@ mcp = FastMCP("weather-service")
 
 AMAP_API_KEY = os.getenv("AMAP_API_KEY")
 AMAP_WEATHER_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
+AMAP_GEO_URL = "https://restapi.amap.com/v3/geocode/geo"
+
+
+# 常见城市名 -> 高德 6 位 adcode 速查表。
+# 高德 geo（地理编码）接口在免费额度下极易被限流，且对"北京/西安"等
+# 直辖市/省会裸名时好时坏；本地表优先匹配，稳定、零配额、不限流。
+# 数据来源：高德开放平台行政区划 adcode。
+CITY_ADCODE_MAP = {
+    "北京": "110000", "北京市": "110000",
+    "上海": "310000", "上海市": "310000",
+    "天津": "120000", "天津市": "120000",
+    "重庆": "500000", "重庆市": "500000",
+    "广州": "440100", "深圳": "440300",
+    "成都": "510100", "杭州": "330100",
+    "南京": "320100", "武汉": "420100",
+    "西安": "610100", "苏州": "320500",
+    "郑州": "410100", "长沙": "430100",
+    "沈阳": "210100", "青岛": "370200",
+    "大连": "210200", "厦门": "350200",
+    "昆明": "530100", "济南": "370100",
+    "福州": "350100", "合肥": "340100",
+    "南昌": "360100", "贵阳": "520100",
+    "南宁": "450100", "海口": "460100",
+    "兰州": "620100", "太原": "140100",
+    "石家庄": "130100", "哈尔滨": "230100",
+    "长春": "220100", "呼和浩特": "150100",
+    "银川": "640100", "西宁": "630100",
+    "乌鲁木齐": "650100", "拉萨": "540100",
+    "宁波": "330200", "无锡": "320200",
+    "佛山": "440600", "东莞": "441900",
+}
+
+
+async def _resolve_adcode(location: str) -> str:
+    """
+    将城市名/地名解析为高德 adcode；若入参已是 6 位 adcode 则直接返回。
+    优先查本地速查表，仅在表外城市/区县时才回退到高德 geo 接口。
+    """
+    location = (location or "").strip()
+    if location.isdigit() and len(location) == 6:
+        return location
+    # 1) 本地速查表（稳定、不耗配额、不限流）
+    if location in CITY_ADCODE_MAP:
+        return CITY_ADCODE_MAP[location]
+    # 兼容带"市"后缀的写法（如"西安市" -> "西安"）
+    if location.endswith("市") and location[:-1] in CITY_ADCODE_MAP:
+        return CITY_ADCODE_MAP[location[:-1]]
+    # 2) 兜底：调用高德 geo 接口（处理表外城市/区县）
+    if not AMAP_API_KEY:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                AMAP_GEO_URL,
+                params={"key": AMAP_API_KEY, "address": location, "output": "JSON"},
+            )
+            geo = resp.json()
+            if geo.get("status") != "1" or not geo.get("geocodes"):
+                return ""
+            return geo["geocodes"][0].get("adcode", "")
+    except Exception:
+        return ""
 
 
 @mcp.tool()
@@ -34,6 +96,11 @@ async def get_weather_forecast(city_adcode: str) -> str:
     if not AMAP_API_KEY:
         return json.dumps({"error": "未配置 AMAP_API_KEY"}, ensure_ascii=False)
 
+    # 兼容城市名与 adcode：先解析为 adcode 再查天气
+    adcode = await _resolve_adcode(city_adcode)
+    if not adcode:
+        return json.dumps({"error": f"无法解析城市: {city_adcode}"}, ensure_ascii=False)
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         # async with .... 开启异步池
         try:
@@ -42,7 +109,7 @@ async def get_weather_forecast(city_adcode: str) -> str:
                 AMAP_WEATHER_URL,
                 params={
                     "key": AMAP_API_KEY,
-                    "city": city_adcode,
+                    "city": adcode,
                     "extensions": "all",  # all 代表我们要查询“预报天气”
                     "output": "JSON"
                 }

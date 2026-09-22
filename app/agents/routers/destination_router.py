@@ -2,6 +2,7 @@
 目的地 Router
 Agent 自主决定是否调用 RAG 工具
 """
+import json
 from typing import TypedDict, Annotated, Literal
 from operator import add
 from pydantic import BaseModel, Field
@@ -11,6 +12,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 from app.config import settings
 from app.tools.rag_tools import get_rag_tools  # 导入 RAG 工具
+from app.tools.mcp_tools import get_weather_tools  # 导入天气 MCP 工具
 from app.utils.logger import app_logger
 
 
@@ -188,23 +190,49 @@ async def explore_agent_node(state: dict) -> dict:
     }
 
 
-# ============== 天气 Agent（保持不变） ==============
+# ============== 天气 Agent（调用高德天气 MCP） ==============
+
+def _format_weather(destination: str, data: dict) -> str:
+    """将高德天气 JSON 格式化为可读 Markdown"""
+    city = data.get("city") or destination
+    province = data.get("province", "")
+    casts = data.get("casts", [])
+    if not casts:
+        return f"## {city} 天气信息\n\n（暂无预报数据）"
+    header = f"## {city} 天气信息" + (f"（{province}）" if province else "")
+    lines = [header, ""]
+    for c in casts:
+        date = c.get("date", "")
+        day_w = c.get("dayweather", "")
+        night_w = c.get("nightweather", "")
+        day_t = c.get("daytemp", "")
+        night_t = c.get("nighttemp", "")
+        wind = c.get("daywind", "")
+        lines.append(f"📅 {date}：{day_w} {day_t}°C / 夜间 {night_w} {night_t}°C，{wind}风")
+    return "\n".join(lines)
+
 
 async def weather_agent_node(state: dict) -> dict:
-    """天气 Agent"""
+    """
+    天气 Agent：调用自建天气 MCP（高德天气 API）查询实时预报
+    """
     destination = state["destination"]
+    app_logger.info(f"🌤️ 天气 Agent 执行: {destination}")
 
-    app_logger.info(f"🌤️ 天气 Agent 执行")
-
-    # TODO: 集成高德天气 MCP
-    result = f"""## {destination} 天气信息
-
-📅 今天：晴，25-32°C，空气质量良
-📅 明天：多云，24-30°C
-📅 后天：阵雨，22-28°C
-
-**穿衣建议**：建议穿轻便透气的夏季服装，外出时注意防晒。
-"""
+    weather_tools = await get_weather_tools()
+    if not weather_tools:
+        result = f"## {destination} 天气信息\n\n⚠️ 天气服务暂不可用（未加载天气工具）"
+    else:
+        try:
+            raw = await weather_tools[0].ainvoke({"city_adcode": destination})
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            if data.get("error"):
+                result = f"## {destination} 天气信息\n\n⚠️ {data['error']}"
+            else:
+                result = _format_weather(destination, data)
+        except Exception as e:
+            app_logger.error(f"❌ 天气查询失败: {e}")
+            result = f"## {destination} 天气信息\n\n⚠️ 天气查询失败：{e}"
 
     return {
         "agent_results": [

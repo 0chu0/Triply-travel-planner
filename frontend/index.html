@@ -1661,7 +1661,7 @@
                     <div class="message-avatar"><i class="fa-solid ${
                       msg.role === "user" ? "fa-user" : "fa-robot"
                     }"></i></div>
-                    <div class="message-content">${escapeHtml(
+                    <div class="message-content">${formatAnswer(
                       msg.content
                     )}</div>
                 </div>
@@ -1844,7 +1844,7 @@
                 <div class="message-avatar"><i class="fa-solid ${
                   role === "user" ? "fa-user" : "fa-robot"
                 }"></i></div>
-                <div class="message-content">${escapeHtml(text)}</div>
+                <div class="message-content">${formatAnswer(text)}</div>
             `;
         container.appendChild(div);
         container.scrollTop = container.scrollHeight;
@@ -1854,7 +1854,7 @@
       function updateMessage(id, text) {
         const el = document.getElementById(id);
         if (el) {
-          el.querySelector(".message-content").innerHTML = escapeHtml(text);
+          el.querySelector(".message-content").innerHTML = formatAnswer(text);
           document.getElementById("chatMessages").scrollTop =
             document.getElementById("chatMessages").scrollHeight;
         }
@@ -1908,6 +1908,28 @@
         if (!str) return "";
         const d = new Date(str);
         return `${d.getMonth() + 1}月${d.getDate()}日`;
+      }
+
+      // 前端不渲染 Markdown（只做转义），所以模型若输出 **粗体** 这类标记，
+      // 用户会直接看到裸星号。这里在展示前统一转成中文方括号，保证观感一致。
+      function normalizeMarkdown(text) {
+        if (!text) return "";
+        let s = String(text);
+        s = s.replace(/\*\*([\s\S]+?)\*\*/g, "【$1】"); // **强调** → 【强调】
+        s = s.replace(/__([\s\S]+?)__/g, "【$1】"); // __强调__ → 【强调】
+        // 行首 # 标题 → 【标题】；若已是【…】就只去掉 #，避免出现【【…】】
+        s = s.replace(/^[ \t]*#{1,6}[ \t]*(.+)$/gm, function (m, t) {
+          return t.indexOf("【") === 0 ? t : "【" + t + "】";
+        });
+        s = s.replace(/```[a-zA-Z0-9]*/g, ""); // 去掉代码块围栏
+        s = s.replace(/`/g, ""); // 去掉行内反引号
+        s = s.replace(/\*\*/g, ""); // 清掉落单的 **
+        return s;
+      }
+
+      // 消息正文统一入口：先规范 Markdown 标记，再转义
+      function formatAnswer(text) {
+        return escapeHtml(normalizeMarkdown(text));
       }
 
       function escapeHtml(text) {

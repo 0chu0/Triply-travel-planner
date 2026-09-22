@@ -139,24 +139,28 @@ def select_destination_tool(
 
 @tool
 def select_transport_tool(
-        transport_type: str,  # "flight" | "driving"
+        transport_type: str,  # "flight" | "driving" | "rail"
         runtime: ToolRuntime[None, TravelState] = None
 ) -> Command:
     """
     确认用户选择的交通方式，并转换到住宿规划步骤。
 
     参数说明：
-    - transport_type: 交通方式，可选值：flight（航班）、driving（自驾）
+    - transport_type: 交通方式，可选值：
+      * flight（航班）
+      * driving（自驾）
+      * rail（铁路/高铁，本项目不提供车次查询能力，用户需自行在 12306 购票；
+              用户明确表示要坐高铁/火车时必须用这个值，以免流程卡住）
     """
 
     app_logger.info(f"用户选择交通方式: {transport_type}")
 
     # 验证枚举值
-    if transport_type not in ["flight", "driving"]:
+    if transport_type not in ["flight", "driving", "rail"]:
         return Command(update={
             "messages": [
                 ToolMessage(
-                    content="❌交通方式无效，请选择：flight 或 driving",
+                    content="❌交通方式无效，请选择：flight（航班）/ driving（自驾）/ rail（铁路高铁）",
                     tool_call_id=runtime.tool_call_id
                 )
             ]
@@ -164,7 +168,8 @@ def select_transport_tool(
 
     transport_labels = {
         "flight": "航班",
-        "driving": "自驾"
+        "driving": "自驾",
+        "rail": "铁路/高铁（票务需自行在 12306 购买）"
     }
 
     return Command(update={
@@ -651,7 +656,7 @@ STEP_LABELS = {
 # 每个步骤回退时需要清除的状态字段
 STEP_STATE_FIELDS = {
     "requirement_collection": ["user_requirement"],
-    "destination_recommendation": ["selected_destination", "destination_options"],
+    "destination_recommendation": ["selected_destination", "destination_options", "destination_weather"],
     "transport_planning": ["selected_transport", "transport_options"],
     "accommodation_planning": ["selected_accommodation_types", "accommodation_options"],
     "food_planning": ["selected_food_types", "food_options"],
@@ -1060,7 +1065,7 @@ def check_current_progress(
         progress_lines.append(f"  - 目的地: {state['selected_destination']}")
 
     if state.get("selected_transport"):
-        transport_labels = {"flight": "航班", "driving": "自驾"}
+        transport_labels = {"flight": "航班", "driving": "自驾", "rail": "铁路/高铁（自行购票）"}
         progress_lines.append(
             f"  - 交通: {transport_labels.get(state['selected_transport'], state['selected_transport'])}")
 

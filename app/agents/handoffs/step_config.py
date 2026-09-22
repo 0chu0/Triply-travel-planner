@@ -41,11 +41,13 @@ async def get_step_config():
         hotel_tools = await get_hotel_tools()
         search_tools = await get_search_tools()
         date_tools = await get_date_tools()
+        weather_tools = await get_weather_tools()
     except Exception as e:
         print(f"MCP工具加载失败: {e}")
         hotel_tools = []
         search_tools = []
         date_tools = []
+        weather_tools = []
 
     return {
         # ========== 步骤 1：需求收集 ==========
@@ -121,6 +123,7 @@ async def get_step_config():
             "tools": [
                 record_requirement_tool,
                 *date_tools,
+                *weather_tools,
                 query_transport_options,
                 *hotel_tools,
                 # 记忆工具
@@ -156,6 +159,16 @@ async def get_step_config():
 - 人数：{user_requirement.adult_count} 成人 + {user_requirement.children_count} 儿童
 - 预算：{user_requirement.budget_min}-{user_requirement.budget_max} 元/人（{user_requirement.budget_level} 级）
 - 旅行风格：{user_requirement.travel_styles}
+
+【已知天气信息】（若已查询，直接引用、不要重复查询；为空则必须先调用 query_destination_info 获取后展示）
+{destination_weather}
+
+【实时天气展示（强制，最高优先级）】
+- 本步骤必须向用户展示目的地的实时天气：逐日列出「天气现象 + 最高/最低温 + 风」，内容来自 query_destination_info 返回的天气章节或上方【已知天气信息】。
+- 如果上方【已知天气信息】已不为空，直接把它清晰、完整地呈现给用户即可，无需再次调用工具。
+- 如果为空，必须先调用 query_destination_info 取得真实天气，再展示。
+- 即使用户同时要求继续推进到交通/住宿，也必须先在本条回复里给出天气，再谈后续。
+- 严禁说"没有接入实时天气/查不到天气/无法获取天气"这类话——本项目已接入高德实时天气。
 
 【你的任务：先判断属于哪种情况，再严格执行】
 
@@ -222,6 +235,7 @@ async def get_step_config():
                 go_back_to_requirement,
                 query_destination_info,
                 query_transport_options,
+                *weather_tools,
                 *search_tools,
                 *hotel_tools,
                 update_travel_style_tool,
@@ -242,6 +256,9 @@ async def get_step_config():
 - 出发日期：{user_requirement.departure_date}
 - 人数：{user_requirement.adult_count} 成人 + {user_requirement.children_count} 儿童
 
+【已知天气信息】（若已查询到，涉及户外/出发准备/穿衣建议时请直接引用，不要说"没接入天气数据"；为空时必须调用 query_destination_info 或天气工具获取后再回答，不得以"查不到天气"为由跳过）
+{destination_weather}
+
 【对话风格要求】
 - 不需要重复前面已经回答的信息,只需要回复用户的问题即可
 - 不要提工具名/内部信息。
@@ -252,7 +269,7 @@ async def get_step_config():
 1) 先用一句话铺垫：你会根据"省时/省钱/自由度"给交通建议。
 2) 先问用户 1-2 个偏好问题（示例，你可以择其一）：
    - "你这次更在乎：时间快一点，还是预算更省一点？"
-   - "能接受转车/换乘吗，还是想尽量直达？"
+   - "能接受中转吗（比如航班中转），还是想尽量直达？"
    - "你们有自驾条件吗（车/驾照/愿不愿意开长途）？"
    （带娃时可以多一句：更想"路上轻松"还是"到处方便停"）
 3) 用户明确选择某种交通方式后：
@@ -265,6 +282,17 @@ async def get_step_config():
    - "你更想选哪个？还是我按"最省心/最省钱/最快"帮你锁定一个？"
 6) 用户确认后，调用 select_transport_tool 记录
 
+【铁路/高铁怎么处理（重要，必读）】
+- 本项目不含火车/高铁车次查询能力。禁止说"我帮你查车次/查高铁票/查火车票"，
+  也禁止编造任何车次号、发车时刻与票价。
+- 用户一旦明确表示想坐高铁/火车：必须立刻调用 select_transport_tool(transport_type="rail")
+  记录并推进流程，同时如实告诉用户"高铁票需要你在 12306 自行购买"，
+  可以补充车站选择（如北京西 → 西安北）与建议时段（上午出发、傍晚返程）。
+- 用户已经表达明确交通倾向（含高铁/火车）时，不要再反复追问偏好，
+  也不要用"要我帮你查车次吗"来提问，直接记录并推进，避免流程卡在交通阶段。
+- 如果航班返回"暂无数据"：如实说明该航线该日期暂无航班数据，给出两个出口
+  （换日期 / 改乘高铁自行购票），不要反复用同样参数重试。
+
 【回退场景】
 - 用户说"换个目的地" → go_back_to_destination
 - 用户说"需求改了/想重新规划" → go_back_to_requirement
@@ -274,8 +302,10 @@ async def get_step_config():
 - 考虑出行人数：多人出行"人均成本"和"便利性"可能不同
 - 价格只给区间或相对描述，不要装作百分百准确
 - 展示航班时精选 ≤8 条（工具返回中标⭐的为准点率100%航班，放最前），并标注「优先推荐航班准点率100%航线」，禁止罗列全部航班、禁止把清单重复输出两遍
+- 查询航班用城市三字码：北京=BJS、上海=SHA、西安=SIA（不是 XIY）
 """,
-            "tools": [select_transport_tool, go_back_to_destination, go_back_to_requirement, query_transport_options],
+            "tools": [select_transport_tool, go_back_to_destination, go_back_to_requirement,
+                      query_transport_options, query_destination_info, *weather_tools],
             "requires": ["user_requirement", "selected_destination"]
         },
 
@@ -303,6 +333,9 @@ async def get_step_config():
 - 人数：{user_requirement.adult_count} + {user_requirement.children_count}
 - 预算等级：{user_requirement.budget_level}
 - 出发日期：{user_requirement.departure_date}
+
+【已知天气信息】（若已查询到，涉及户外/出发准备/穿衣建议时请直接引用，不要说"没接入天气数据"；为空时必须调用天气工具或 query_destination_info 获取后再回答，不得以"查不到天气"为由跳过）
+{destination_weather}
 
 【你的工具能力】
 你可以用以下工具获取真实酒店数据（参数见工具说明）：
@@ -351,6 +384,8 @@ async def get_step_config():
                 go_back_to_requirement,
                 go_back_to_transport,
                 *hotel_tools,
+                query_destination_info,
+                *weather_tools,
                 update_accommodation_preference_tool
             ],
             "requires": ["user_requirement", "selected_destination", "selected_transport"]
@@ -379,6 +414,9 @@ async def get_step_config():
 - 目的地：{selected_destination}
 - 出行天数：{user_requirement.travel_days} 天
 - 旅行风格：{user_requirement.travel_styles}
+
+【已知天气信息】（若已查询到，涉及户外/出发准备/穿衣建议时请直接引用，不要说"没接入天气数据"；为空时必须调用天气工具或 query_destination_info 获取后再回答，不得以"查不到天气"为由跳过）
+{destination_weather}
 
 【你的任务流程】
 1) 先做安全确认（如果历史偏好里没有或用户没说清）：
@@ -411,6 +449,8 @@ async def get_step_config():
                 go_back_to_requirement,
                 go_back_to_transport,
                 go_back_to_accommodation,
+                query_destination_info,
+                *weather_tools,
                 update_dietary_restriction_tool,
                 update_food_preference_tool
             ],
@@ -447,6 +487,9 @@ async def get_step_config():
 - 交通方式：{selected_transport}
 - 住宿偏好/酒店：{selected_accommodation_types}
 - 餐饮偏好：{selected_food_types}
+
+【已知天气信息】（若已查询到，请在行程中据此给出穿衣/带伞/室内备选等建议，不要说"没接入天气数据"；为空时必须先调用天气工具获取）
+{destination_weather}
 
 【你的任务流程】
 1) 先给一个"行程总览"（3-5行）：
@@ -496,7 +539,8 @@ async def get_step_config():
                 go_back_to_requirement,
                 go_back_to_transport,
                 go_back_to_accommodation,
-                go_back_to_food
+                go_back_to_food,
+                *weather_tools
             ],
             "requires": [
                 "user_requirement",

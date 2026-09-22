@@ -36,7 +36,8 @@ BudgetLevel = Literal[
 
 TransportType = Literal[
     "flight",   # 航班
-    "driving"   # 自驾
+    "driving",  # 自驾
+    "rail"      # 铁路/高铁（本项目不提供车次查询，需用户自行在 12306 购票）
 ]
 
 AccommodationType = Literal[
@@ -148,6 +149,9 @@ class TravelState(AgentState):
     selected_transport: NotRequired[TransportType]      # 选中的交通方式
     selected_accommodation_types: NotRequired[list[AccommodationType]]  # 选中的住宿类型（多选）
     selected_food_types: NotRequired[list[FoodType]]    # 选中的餐饮类型（多选）
+
+    # ========== 已查到的实时天气（跨步骤保留，避免丢失） ==========
+    destination_weather: NotRequired[str]               # 目的地的实时天气（Markdown，可能为空）
 
     # ========== 查询结果 ==========
     destination_options: NotRequired[list[DestinationInfo]]      # 目的地选项
