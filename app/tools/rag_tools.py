@@ -107,7 +107,10 @@ async def search_destination_guide(query: str) -> str:
         return result
     except Exception as e:
         app_logger.error(f"❌ RAG 检索失败: {e}")
-        raise ToolException(f"检索过程中出现错误：{str(e)}")
+        raise ToolException(
+            "知识库检索服务暂时不可用（详细原因见服务端日志）。"
+            "请先基于你已有的知识回答，并温和告知用户稍后重试。"
+        )
 
 
 @tool
@@ -136,7 +139,10 @@ async def search_food_recommendations(query: str) -> str:
         return _format_rag_results(documents, query)
     except Exception as e:
         app_logger.error(f"❌ 美食检索失败: {e}")
-        raise ToolException(f"检索过程中出现错误：{str(e)}")
+        raise ToolException(
+            "知识库检索服务暂时不可用（详细原因见服务端日志）。"
+            "请先基于你已有的知识回答，并温和告知用户稍后重试。"
+        )
 
 
 @tool
@@ -164,7 +170,10 @@ async def search_accommodation_info(query: str) -> str:
         return _format_rag_results(documents, query)
     except Exception as e:
         app_logger.error(f"❌ 住宿检索失败: {e}")
-        raise ToolException(f"检索过程中出现错误：{str(e)}")
+        raise ToolException(
+            "知识库检索服务暂时不可用（详细原因见服务端日志）。"
+            "请先基于你已有的知识回答，并温和告知用户稍后重试。"
+        )
 
 
 @tool
@@ -192,7 +201,10 @@ async def search_travel_tips(query: str) -> str:
         return _format_rag_results(documents, query)
     except Exception as e:
         app_logger.error(f"❌ 旅行贴士检索失败: {e}")
-        raise ToolException(f"检索过程中出现错误：{str(e)}")
+        raise ToolException(
+            "知识库检索服务暂时不可用（详细原因见服务端日志）。"
+            "请先基于你已有的知识回答，并温和告知用户稍后重试。"
+        )
 
 
 # ============== 工具集合 ==============
