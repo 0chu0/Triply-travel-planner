@@ -1620,7 +1620,9 @@
           tip.style.display = "block";
           tip.innerHTML =
             "免费体验额度已用尽，对话服务已暂停。" +
-            (u.contact ? `可联系：${escapeHtml(u.contact)}` : "可提交申请获取更多额度。");
+            (u.contact
+              ? `<br>联系方式：${escapeHtml(u.contact)}`
+              : "可提交申请获取更多额度。");
           btn.style.display = "block";
         } else {
           tip.style.display = "none";
@@ -1663,10 +1665,10 @@
               ? data.detail
               : "申请已提交，请等待管理员处理";
           showToast(msg);
-          if (data.contact) {
-            document.getElementById(
-              "quotaTip"
-            ).innerHTML += `<br>联系方式：${escapeHtml(data.contact)}`;
+          // 联系方式由 renderQuota 统一渲染，这里只在缺失时兜底补一次，避免出现两行
+          const tip = document.getElementById("quotaTip");
+          if (tip && data.contact && !tip.innerHTML.includes("联系方式：")) {
+            tip.innerHTML += `<br>联系方式：${escapeHtml(data.contact)}`;
           }
           btn.textContent = "申请已提交";
         } catch (e) {
