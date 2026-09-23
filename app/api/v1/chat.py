@@ -57,6 +57,76 @@ def sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+# 主图中"负责写回答"的 LLM 节点名。
+# langchain 的 create_agent 固定把模型节点注册为 "model"（见 create_agent 源码
+# graph.add_node("model", ...)），只有它的输出才是给用户看的正文。
+ANSWER_STREAM_NODES = frozenset({"model"})
+
+
+def is_answer_stream_event(event: dict) -> bool:
+    """
+    判断一个 chat model 流式事件是否属于「给用户的正文」。
+
+    为什么需要这个判断：
+        agent.astream_events() 遍历的是【整棵运行树】，不只是主图。工具内部
+        嵌套的子图（目的地 Router 的 classifier / explore / weather）和工具里
+        直连的 LLM（RAG 的查询改写）都会同样发出 on_chat_model_stream 事件。
+        它们的内容是内部数据，例如分类器返回的
+            {"classifications": [{"agent": "explore", ...}]}
+        若不加区分地转发，就会泄漏到聊天正文里，还会被当成 assistant 回复存库。
+
+    判定依据：
+        langgraph 运行每个节点时会往事件 metadata 写入 "langgraph_node"；
+        metadata 合并是新值覆盖旧值（patch_config → _merge_metadata），
+        因此子图节点的名字会盖掉外层的 "tools"，可以精确区分来源。
+    """
+    if event.get("event") != "on_chat_model_stream":
+        return False
+    metadata = event.get("metadata") or {}
+    return metadata.get("langgraph_node") in ANSWER_STREAM_NODES
+
+
+async def get_state_message_count(agent, conversation_id: str) -> int:
+    """读取本轮开始前，图状态里已有的消息条数（用于兜底时划定"本轮新增"边界）。"""
+    try:
+        state = await agent.aget_state(
+            {"configurable": {"thread_id": conversation_id}}
+        )
+        values = getattr(state, "values", None) or {}
+        return len(values.get("messages") or [])
+    except Exception as e:
+        app_logger.warning(f"⚠️ 读取图状态消息条数失败（已忽略）: {e}")
+        return 0
+
+
+async def recover_final_answer(agent, conversation_id: str, min_index: int = 0) -> str:
+    """
+    兜底：从图的最新状态里取最后一条 AI 消息。
+
+    白名单过滤的唯一风险是「误杀」——将来 langchain 若改了节点命名，正文会被
+    静默丢弃，用户看到空白回复（比泄漏更糟）。所以一轮结束时如果一个字都没流
+    出来，就用图的最终状态补发一次完整回答。
+
+    min_index 是本轮开始前的消息条数：只接受本轮新增的消息。否则当本轮压根没
+    生成回答（例如停在需要审批的中断处）时，会把上一轮的回答重复发一遍。
+    """
+    try:
+        state = await agent.aget_state(
+            {"configurable": {"thread_id": conversation_id}}
+        )
+        values = getattr(state, "values", None) or {}
+        messages = values.get("messages") or []
+        for message in reversed(messages[min_index:]):
+            if not isinstance(message, AIMessage):
+                continue
+            content = message.content
+            if isinstance(content, str) and content.strip():
+                return content
+    except Exception as e:
+        app_logger.warning(f"⚠️ 兜底读取最终回答失败（已忽略）: {e}")
+    return ""
+
+
 async def generate_sse_stream(
         conversation_id: str,
         user_message: str,
@@ -83,6 +153,12 @@ async def generate_sse_stream(
             "user_id": str(user.id),
         }
 
+        streamed_answer = False
+        ignored_nodes = set()
+
+        # 记下本轮开始前的消息条数，兜底时只认本轮新增的消息
+        turn_start_index = await get_state_message_count(agent, conversation_id)
+
         # 4. 使用 astream_events 获取更细粒度的流式输出
         async for event in agent.astream_events(
                 input_data,
@@ -95,8 +171,18 @@ async def generate_sse_stream(
         ):
             kind = event.get("event")
 
-            # 捕获 LLM 流式输出
+            # 只转发主图 model 节点的流式输出（= 给用户的正文）
             if kind == "on_chat_model_stream":
+                if not is_answer_stream_event(event):
+                    node = (event.get("metadata") or {}).get("langgraph_node")
+                    if node not in ignored_nodes:
+                        ignored_nodes.add(node)
+                        app_logger.info(
+                            f"⏭️ 内部节点的流式输出不进正文: node={node}"
+                        )
+                    await asyncio.sleep(0)
+                    continue
+
                 chunk = event.get("data", {}).get("chunk")
                 if chunk and hasattr(chunk, "content") and chunk.content:
                     token = chunk.content
@@ -107,6 +193,7 @@ async def generate_sse_stream(
                             for part in token
                         )
                     if token:
+                        streamed_answer = True
                         assistant_message += token
                         yield sse({
                             "type": "token",
@@ -135,7 +222,18 @@ async def generate_sse_stream(
 
             await asyncio.sleep(0)
 
-        # 5. 保存 AI 回复
+        # 5. 兜底：白名单若因框架升级误杀，会变成空白回复（比泄漏更糟），
+        #    此时用图的最终状态补发一次完整回答。
+        if not streamed_answer:
+            recovered = await recover_final_answer(
+                agent, conversation_id, turn_start_index
+            )
+            if recovered:
+                app_logger.warning("⚠️ 未捕获到流式正文，已用最终状态兜底补发")
+                assistant_message = recovered
+                yield sse({"type": "token", "content": recovered})
+
+        # 6. 保存 AI 回复
         if assistant_message.strip():
             await save_message(
                 db,
@@ -144,7 +242,7 @@ async def generate_sse_stream(
                 assistant_message,
             )
 
-        # 6. 结算 token 用量
+        # 7. 结算 token 用量
         #    模型未返回 usage 时用字符数兜底估算，避免出现「永远不扣额度」的漏计
         if prompt_tokens == 0 and completion_tokens == 0:
             prompt_tokens = estimate_tokens(user_message)
