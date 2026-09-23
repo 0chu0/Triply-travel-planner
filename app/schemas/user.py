@@ -27,6 +27,9 @@ class UserResponse(BaseModel):
     email: str
     preferences: Optional[Dict[str, Any]] = None
     created_at: datetime
+    # 是否管理员：仅用于让前端决定要不要显示「消息通知」入口，不承担鉴权职责
+    # （真正的鉴权仍需后端每个接口自己校验，见 users.py 的 _require_admin）
+    is_admin: bool = False
 
     class Config:
         from_attributes = True

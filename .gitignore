@@ -11,9 +11,18 @@ wheels/
 
 # Secrets & runtime artifacts
 .env
+.env.bak*
 logs/
 data/vectorstore/
 update.tar.gz
+
+# SSH / TLS keys — 绝不入库（曾误在仓库根目录生成过密钥对）
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+057dc12034de0d540cc872256614b4bf
+057dc12034de0d540cc872256614b4bf.pub
 
 # IDE
 .idea/
