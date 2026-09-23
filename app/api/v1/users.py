@@ -1,9 +1,11 @@
 """
 用户管理 API
 """
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.models.base import get_db, async_session_maker
 from app.models.user import User
 from app.models.usage import QuotaRequest
@@ -18,6 +20,23 @@ from app.config import settings
 from app.utils.logger import app_logger
 
 router = APIRouter(prefix="/users", tags=["用户管理"])
+
+
+def _is_admin(user: User) -> bool:
+    """管理员判定：用户名等于 .env 中配置的 BOOTSTRAP_ADMIN_USERNAME"""
+    return bool(settings.bootstrap_admin_username) and user.username == settings.bootstrap_admin_username
+
+
+def _user_payload(user: User) -> UserResponse:
+    """
+    统一构造用户响应。
+
+    额外带上 is_admin，前端据此决定是否显示「消息通知」入口。
+    注意：这只是给前端做 UI 显隐，接口鉴权仍由 _require_admin 负责。
+    """
+    payload = UserResponse.model_validate(user)
+    payload.is_admin = _is_admin(user)
+    return payload
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -67,7 +86,7 @@ async def register(
 
     return TokenResponse(
         access_token=access_token,
-        user=UserResponse.from_orm(user)
+        user=_user_payload(user)
     )
 
 
@@ -93,7 +112,7 @@ async def login(
 
     return TokenResponse(
         access_token=access_token,
-        user=UserResponse.from_orm(user)
+        user=_user_payload(user)
     )
 
 
@@ -102,7 +121,7 @@ async def get_current_user_info(
         user: User = Depends(get_current_user)
 ):
     """获取当前用户信息"""
-    return UserResponse.from_orm(user)
+    return _user_payload(user)
 
 
 @router.get("/usage", response_model=UsageResponse)
@@ -176,28 +195,133 @@ async def request_more_quota(
 
 def _require_admin(user: User):
     """简易管理员校验：用户名等于 .env 中配置的 BOOTSTRAP_ADMIN_USERNAME"""
-    if not settings.bootstrap_admin_username or user.username != settings.bootstrap_admin_username:
+    if not _is_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="仅管理员可操作"
         )
 
 
+async def _get_quota_request(db: AsyncSession, request_id: str) -> QuotaRequest:
+    """按 request_id 取申请记录；ID 非法或不存在时抛 4xx"""
+    try:
+        rid = uuid.UUID(str(request_id))
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="申请 ID 格式不正确"
+        )
+
+    result = await db.execute(select(QuotaRequest).where(QuotaRequest.id == rid))
+    req = result.scalar_one_or_none()
+    if not req:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="申请记录不存在"
+        )
+    return req
+
+
+def _request_payload(r: QuotaRequest) -> dict:
+    """
+    申请记录的对外表示。
+
+    出于保密考虑只回传「电子邮箱」，不回传用户名 / user_id：
+    管理员据此联系申请人；要给人加量时改用 request_id（见 approve 接口），
+    因此前端不需要、也拿不到用户名。
+    """
+    return {
+        "request_id": str(r.id),
+        "email": r.email or "",
+        "reason": r.reason or "",
+        "status": r.status,
+        "created_at": r.created_at.isoformat() if r.created_at else "",
+    }
+
+
 @router.get("/quota-requests")
 async def list_quota_requests(
         limit: int = 50,
+        status_filter: str = "",
         user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
-    """查看提额申请列表（仅管理员）"""
+    """
+    查看提额申请列表（仅管理员）。
+
+    status_filter 可传 pending / approved / rejected，留空表示全部。
+    返回项只含邮箱（不含用户名），并附带全局待处理数量，供前端做角标。
+    """
     _require_admin(user)
 
-    result = await db.execute(
-        select(QuotaRequest)
-        .order_by(QuotaRequest.created_at.desc())
-        .limit(limit)
+    stmt = select(QuotaRequest)
+    if status_filter:
+        stmt = stmt.where(QuotaRequest.status == status_filter)
+    stmt = stmt.order_by(QuotaRequest.created_at.desc()).limit(max(1, min(limit, 200)))
+
+    result = await db.execute(stmt)
+    items = [_request_payload(r) for r in result.scalars().all()]
+
+    pending_result = await db.execute(
+        select(func.count())
+        .select_from(QuotaRequest)
+        .where(QuotaRequest.status == "pending")
     )
-    return {"items": [r.to_dict() for r in result.scalars().all()]}
+    pending_count = int(pending_result.scalar() or 0)
+
+    return {"items": items, "pending_count": pending_count}
+
+
+@router.post("/quota-requests/{request_id}/approve")
+async def approve_quota_request(
+        request_id: str,
+        quota_tokens: int = 20_000,
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    批准一条提额申请（仅管理员）。
+
+    按 request_id 定位申请人（前端只知道邮箱，不知道用户名），
+    把其账号配额设为 quota_tokens，并把该申请标记为 approved。
+    """
+    _require_admin(user)
+
+    req = await _get_quota_request(db, request_id)
+    new_quota = max(0, int(quota_tokens))
+
+    usage = await get_or_create_usage(db, req.user_id)
+    usage.quota_tokens = new_quota
+    req.status = "approved"
+    await db.commit()
+    await db.refresh(usage)
+
+    app_logger.info(f"✅ 管理员批准提额: {req.email} → {new_quota} tokens")
+
+    return {
+        "status": "approved",
+        "request_id": str(req.id),
+        "email": req.email,
+        **build_usage_payload(usage),
+    }
+
+
+@router.post("/quota-requests/{request_id}/reject")
+async def reject_quota_request(
+        request_id: str,
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """忽略一条提额申请（仅管理员）：只改状态，不动配额。"""
+    _require_admin(user)
+
+    req = await _get_quota_request(db, request_id)
+    req.status = "rejected"
+    await db.commit()
+
+    app_logger.info(f"🚫 管理员忽略提额申请: {req.email}")
+
+    return {"status": "rejected", "request_id": str(req.id), "email": req.email}
 
 
 @router.post("/quota/grant")

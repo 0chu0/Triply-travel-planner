@@ -178,8 +178,8 @@ BOOTSTRAP_ADMIN_USERNAME=admin        # 首次启动自动创建的管理员账�
 BOOTSTRAP_ADMIN_PASSWORD=travel2026
 
 # ===== Token 配额（应用层限额）=====
-DEFAULT_USER_TOKEN_QUOTA=500          # 每账号默认 token 上限
-QUOTA_REQUEST_CONTACT=                # 超额时页面展示的联系方式（邮箱/微信）
+DEFAULT_USER_TOKEN_QUOTA=3000         # 每账号默认 token 上限（实测单轮对话约 1.2 万 token，3000 只够发 1 条）
+QUOTA_REQUEST_CONTACT=                # 超额时页面展示的联系方式（邮箱/微信），会同时出现在侧边栏和弹窗里
 ```
 
 > 说明：本文件里的「密钥」均为**第三方 API Token / 数据库密码 / 应用密钥**（如阿里云百炼
@@ -274,6 +274,11 @@ docker compose up -d --build
   - 超出配额返回 **402**，前端提示「申请更多额度」
 - **路由前缀 `/api/v1`**：
   - 用户：`POST /register`、`POST /login`、`GET /me`、`GET /usage`、`POST /quota-request`
+  - 管理员（用户名等于 `BOOTSTRAP_ADMIN_USERNAME`，否则 403）：
+    `GET /users/quota-requests`（提额申请列表，**只回邮箱、不回用户名**）、
+    `POST /users/quota-requests/{request_id}/approve?quota_tokens=N`（批准加量）、
+    `POST /users/quota-requests/{request_id}/reject`（忽略）、
+    `POST /users/quota/grant?username=xxx&quota_tokens=N`（按用户名直接改额度）
   - 会话：`POST ""` / `GET ""` / `GET /{id}` / `PATCH /{id}` / `DELETE /{id}`（conversations）
   - 对话：`POST /chat/stream/{conversation_id}`（SSE）、`GET /chat/history/{conversation_id}`
 
@@ -281,7 +286,13 @@ docker compose up -d --build
 
 - `DEFAULT_USER_TOKEN_QUOTA` 控制每账号默认额度；`token_usage.quota_tokens=0` 表示跟随全局默认。
 - 额度在**每轮对话开始前**校验，超额对话被 402 暂停。
-- 单独提额（admin）：`POST /api/v1/users/quota/grant?username=xxx&quota_tokens=N`
+- **超额时的用户侧体验**：前端侧边栏额度条 + 独立弹窗都会展示 `QUOTA_REQUEST_CONTACT`（点击可复制），
+  并提供「申请更多额度」自助提交入口。
+- **管理员侧**：登录管理员账号后侧边栏出现「消息通知」入口（带未处理角标），
+  点开可见所有提额申请——**为保护隐私只显示电子邮箱**，可一键「通过」（默认加 2 万）或「忽略」。
+  前端通过 `GET /me` 返回的 `is_admin` 字段决定是否显示该入口。
+- 单独提额（admin）：`POST /api/v1/users/quota/grant?username=xxx&quota_tokens=N`（需知道用户名）；
+  走通知列表则用 `POST /api/v1/users/quota-requests/{request_id}/approve?quota_tokens=N`（只需 request_id，前端拿不到用户名）。
 - `ALLOW_OPEN_REGISTRATION=true` 放开注册，配合配额防止被白嫖。
 
 ## 十三、运维命令速查

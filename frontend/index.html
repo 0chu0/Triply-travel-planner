@@ -938,6 +938,188 @@
         background: #b8404f;
       }
 
+      /* ===== 通用弹窗（额度不足提示 / 管理员通知） ===== */
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(122, 40, 64, 0.32);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1100;
+        padding: 20px;
+      }
+      .modal-overlay.hidden {
+        display: none;
+      }
+      .modal-card {
+        width: 100%;
+        max-width: 440px;
+        max-height: 82vh;
+        overflow-y: auto;
+        padding: 26px 26px 22px;
+        border-radius: var(--radius-lg);
+        background: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 18px 60px rgba(122, 40, 64, 0.28);
+        position: relative;
+      }
+      .modal-card h3 {
+        margin: 0 0 8px;
+        font-size: 18px;
+        color: var(--primary-deep);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .modal-desc {
+        margin: 0 0 16px;
+        font-size: 13px;
+        line-height: 1.7;
+        color: var(--text-light);
+      }
+      /* 联系方式：整块可点，一键复制 */
+      .contact-box {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 13px 15px;
+        border: 1px dashed rgba(184, 77, 110, 0.5);
+        border-radius: var(--radius-sm);
+        background: rgba(184, 77, 110, 0.07);
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--primary-deep);
+        word-break: break-all;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .contact-box:hover {
+        background: rgba(184, 77, 110, 0.13);
+      }
+      .contact-box i {
+        color: var(--primary);
+        flex-shrink: 0;
+      }
+      .contact-hint {
+        margin: 7px 0 0;
+        font-size: 11px;
+        color: var(--text-light);
+      }
+      .modal-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      .modal-btn {
+        flex: 1;
+        padding: 10px 12px;
+        border: none;
+        border-radius: var(--radius-sm);
+        background: linear-gradient(135deg, #b84d6e, #d4789a);
+        color: #fff;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: opacity 0.2s;
+      }
+      .modal-btn.ghost {
+        background: rgba(184, 77, 110, 0.12);
+        color: var(--primary-deep);
+      }
+      .modal-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      /* ===== 管理员「消息通知」入口 + 申请列表 ===== */
+      .admin-entry {
+        position: relative;
+        margin-top: 10px;
+        width: 100%;
+        padding: 9px 12px;
+        border: 1px solid rgba(184, 77, 110, 0.35);
+        border-radius: var(--radius-sm);
+        background: rgba(184, 77, 110, 0.08);
+        color: var(--primary-deep);
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+      .admin-entry:hover {
+        background: rgba(184, 77, 110, 0.15);
+      }
+      .admin-badge {
+        position: absolute;
+        top: -8px;
+        right: -8px;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 9px;
+        background: #b8404f;
+        color: #fff;
+        font-size: 11px;
+        line-height: 18px;
+        text-align: center;
+      }
+      .admin-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 11px 0;
+        border-bottom: 1px solid rgba(184, 77, 110, 0.14);
+      }
+      .admin-row:last-of-type {
+        border-bottom: none;
+      }
+      .admin-email {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--primary-deep);
+        word-break: break-all;
+      }
+      .admin-meta {
+        margin-top: 3px;
+        font-size: 11px;
+        color: var(--text-light);
+      }
+      .admin-ops {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .admin-ops button {
+        padding: 6px 10px;
+        border: none;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #b84d6e, #d4789a);
+        color: #fff;
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .admin-ops button.ghost {
+        background: rgba(184, 77, 110, 0.12);
+        color: var(--primary-deep);
+      }
+      .admin-empty {
+        padding: 22px 0;
+        text-align: center;
+        font-size: 13px;
+        color: var(--text-light);
+      }
+
       /* 响应式 */
       @media (max-width: 900px) {
         .app-container {
@@ -964,6 +1146,9 @@
         }
         /* 窄屏收起侧边栏时额度条也隐藏；JS 用 inline display 控制显隐，故需 !important */
         .quota-card {
+          display: none !important;
+        }
+        .admin-entry {
           display: none !important;
         }
         .new-chat-btn {
@@ -1148,6 +1333,12 @@
               申请更多额度
             </button>
           </div>
+
+          <!-- 管理员专属：额度申请消息通知（非管理员账号看不到） -->
+          <button class="admin-entry" id="adminEntry" onclick="openAdminModal()">
+            <i class="fa-solid fa-bell"></i> 消息通知
+            <span class="admin-badge" id="adminBadge" style="display: none">0</span>
+          </button>
         </div>
 
         <button class="new-chat-btn" onclick="createNewConversation()">
@@ -1213,6 +1404,48 @@
       </main>
     </div>
 
+    <!-- 额度不足弹窗：把管理员联系方式明确摆到用户面前 -->
+    <div class="modal-overlay hidden" id="quotaModal">
+      <div class="modal-card">
+        <h3><i class="fa-solid fa-battery-quarter"></i> 免费体验额度已用尽</h3>
+        <p class="modal-desc">
+          你的体验额度已经用完，对话服务暂时停止。可以点「申请更多额度」自助提交，
+          也可以直接通过下面的方式联系管理员开通。
+        </p>
+        <div class="contact-box" id="quotaContactBox" onclick="copyQuotaContact()">
+          <span id="quotaContactText">请联系管理员开通更多额度</span>
+          <i class="fa-regular fa-copy"></i>
+        </div>
+        <p class="contact-hint" id="quotaContactHint"></p>
+        <div class="modal-actions">
+          <button class="modal-btn ghost" onclick="hideQuotaModal()">稍后再说</button>
+          <button
+            class="modal-btn"
+            id="quotaModalApplyBtn"
+            onclick="requestMoreQuota(true)"
+          >
+            申请更多额度
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 管理员通知：提额申请列表（只显示邮箱） -->
+    <div class="modal-overlay hidden" id="adminModal">
+      <div class="modal-card">
+        <h3><i class="fa-solid fa-bell"></i> 额度申请通知</h3>
+        <p class="modal-desc">
+          以下账号的免费额度已用尽并提交了申请。为保护用户隐私，这里只显示电子邮箱；
+          点「通过」会立即为其提升额度。
+        </p>
+        <div id="adminList"><div class="admin-empty">加载中...</div></div>
+        <div class="modal-actions">
+          <button class="modal-btn ghost" onclick="hideAdminModal()">关闭</button>
+          <button class="modal-btn" onclick="loadAdminRequests(true)">刷新</button>
+        </div>
+      </div>
+    </div>
+
     <div class="toast" id="toast">
       <i class="fa-solid fa-info-circle"></i> <span id="toastMsg"></span>
     </div>
@@ -1245,6 +1478,8 @@
           updateUserInfo();
           loadConversations();
           loadUsage();
+          // 登录态可能来自旧版本缓存（没有 is_admin 字段），拉一次 /me 校正
+          refreshMe();
         }
         autoResizeTextarea();
       });
@@ -1308,6 +1543,7 @@
             updateUserInfo();
             loadConversations();
             loadUsage();
+            updateAdminEntry();
           } else {
             showToast(data.detail || "操作失败", true);
           }
@@ -1398,8 +1634,11 @@
         return String(n);
       }
 
-      async function requestMoreQuota() {
-        const btn = document.getElementById("quotaApplyBtn");
+      async function requestMoreQuota(fromModal) {
+        const btn = fromModal
+          ? document.getElementById("quotaModalApplyBtn")
+          : document.getElementById("quotaApplyBtn");
+        if (!btn) return;
         btn.disabled = true;
         btn.textContent = "提交中...";
         try {
@@ -1435,6 +1674,214 @@
           btn.disabled = false;
           btn.textContent = "申请更多额度";
         }
+      }
+
+      // ===== 额度不足弹窗：把管理员联系方式明确展示出来 =====
+      let currentQuotaContact = "";
+
+      function showQuotaModal(u) {
+        currentQuotaContact = (u && u.contact) || "";
+        const text = document.getElementById("quotaContactText");
+        const hint = document.getElementById("quotaContactHint");
+        if (!text || !hint) return;
+
+        text.textContent = currentQuotaContact || "请联系管理员开通更多额度";
+        hint.textContent = currentQuotaContact
+          ? "点上方可直接复制，把这条信息发给管理员即可"
+          : "管理员暂未配置联系方式，可点下方按钮自助提交申请";
+
+        document.getElementById("quotaModal").classList.remove("hidden");
+      }
+
+      function hideQuotaModal() {
+        document.getElementById("quotaModal").classList.add("hidden");
+      }
+
+      function copyQuotaContact() {
+        if (!currentQuotaContact) {
+          showToast("管理员暂未配置联系方式", true);
+          return;
+        }
+        const text = currentQuotaContact;
+        const done = () => showToast("联系方式已复制：" + text);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard
+            .writeText(text)
+            .then(done)
+            .catch(() => fallbackCopy(text, done));
+        } else {
+          // file:// 或非 HTTPS 场景下 clipboard API 不可用，退回老方案
+          fallbackCopy(text, done);
+        }
+      }
+
+      function fallbackCopy(text, done) {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.top = "-1000px";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand("copy");
+          done();
+        } catch (e) {
+          showToast("复制失败，请手动记录：" + text, true);
+        }
+        document.body.removeChild(ta);
+      }
+
+      // ===== 管理员：额度申请消息通知 =====
+      async function refreshMe() {
+        if (!state.token) return;
+        try {
+          const res = await fetch(`${getApiBase()}/api/v1/users/me`, {
+            headers: { Authorization: `Bearer ${state.token}` },
+          });
+          if (res.status === 401) return logout();
+          if (!res.ok) return;
+          state.user = await res.json();
+          localStorage.setItem("user", JSON.stringify(state.user));
+          updateUserInfo();
+        } catch (e) {
+          /* 静默失败：不是核心功能 */
+        }
+        updateAdminEntry();
+      }
+
+      function updateAdminEntry() {
+        const entry = document.getElementById("adminEntry");
+        if (!entry) return;
+        const isAdmin = !!(state.user && state.user.is_admin);
+        entry.style.display = isAdmin ? "flex" : "none";
+        if (isAdmin) loadAdminRequests(false);
+      }
+
+      async function loadAdminRequests(showError) {
+        if (!state.token || !(state.user && state.user.is_admin)) return;
+        try {
+          const res = await fetch(
+            `${getApiBase()}/api/v1/users/quota-requests?status_filter=pending`,
+            { headers: { Authorization: `Bearer ${state.token}` } }
+          );
+          if (!res.ok) {
+            if (showError) showToast("获取申请列表失败", true);
+            return;
+          }
+          const data = await res.json();
+          renderAdminBadge(data.pending_count || 0);
+          renderAdminList(data.items || []);
+        } catch (e) {
+          if (showError) showToast("网络异常，请稍后重试", true);
+        }
+      }
+
+      function renderAdminBadge(n) {
+        const badge = document.getElementById("adminBadge");
+        if (!badge) return;
+        if (n > 0) {
+          badge.textContent = n > 99 ? "99+" : String(n);
+          badge.style.display = "block";
+        } else {
+          badge.style.display = "none";
+        }
+      }
+
+      const QUOTA_STATUS_TEXT = {
+        pending: "待处理",
+        approved: "已通过",
+        rejected: "已忽略",
+      };
+
+      function renderAdminList(items) {
+        const list = document.getElementById("adminList");
+        if (!list) return;
+        if (!items.length) {
+          list.innerHTML = '<div class="admin-empty">目前没有待处理的申请</div>';
+          return;
+        }
+        list.innerHTML = items
+          .map((it) => {
+            const statusText =
+              QUOTA_STATUS_TEXT[it.status] || escapeHtml(it.status || "");
+            return `
+          <div class="admin-row">
+            <div>
+              <div class="admin-email">${escapeHtml(it.email || "（未填写邮箱）")}</div>
+              <div class="admin-meta">${escapeHtml(
+                formatDateTime(it.created_at)
+              )} · ${statusText}</div>
+            </div>
+            <div class="admin-ops">
+              <button onclick="approveQuotaRequest('${
+                it.request_id
+              }', 20000)">通过</button>
+              <button class="ghost" onclick="rejectQuotaRequest('${
+                it.request_id
+              }')">忽略</button>
+            </div>
+          </div>`;
+          })
+          .join("");
+      }
+
+      function formatDateTime(str) {
+        if (!str) return "";
+        const d = new Date(str);
+        if (isNaN(d.getTime())) return "";
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(
+          d.getMinutes()
+        )}`;
+      }
+
+      async function approveQuotaRequest(requestId, quotaTokens) {
+        try {
+          const res = await fetch(
+            `${getApiBase()}/api/v1/users/quota-requests/${encodeURIComponent(
+              requestId
+            )}/approve?quota_tokens=${quotaTokens}`,
+            { method: "POST", headers: { Authorization: `Bearer ${state.token}` } }
+          );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.detail || "操作失败", true);
+            return;
+          }
+          showToast(`已为 ${data.email || "该账号"} 提升额度`);
+          loadAdminRequests(false);
+        } catch (e) {
+          showToast("网络异常，请稍后重试", true);
+        }
+      }
+
+      async function rejectQuotaRequest(requestId) {
+        try {
+          const res = await fetch(
+            `${getApiBase()}/api/v1/users/quota-requests/${encodeURIComponent(
+              requestId
+            )}/reject`,
+            { method: "POST", headers: { Authorization: `Bearer ${state.token}` } }
+          );
+          if (!res.ok) {
+            showToast("操作失败", true);
+            return;
+          }
+          showToast("已忽略该申请");
+          loadAdminRequests(false);
+        } catch (e) {
+          showToast("网络异常，请稍后重试", true);
+        }
+      }
+
+      function openAdminModal() {
+        document.getElementById("adminModal").classList.remove("hidden");
+        loadAdminRequests(true);
+      }
+
+      function hideAdminModal() {
+        document.getElementById("adminModal").classList.add("hidden");
       }
 
       function logout() {
@@ -1749,19 +2196,20 @@
 
           removeMessage(loadingId);
 
-          // 额度用尽：后端返回 402，提示并给出申请入口
+          // 额度用尽：后端返回 402 → 侧边栏额度条 + 弹窗（含管理员联系方式）
           if (res.status === 402) {
             const data = await res.json().catch(() => ({}));
             const detail =
               data && typeof data.detail === "object" ? data.detail : {};
-            renderQuota({
+            const quotaPayload = {
               remaining_tokens: detail.remaining_tokens || 0,
               quota_tokens: detail.quota_tokens || 0,
               percent: detail.percent || 100,
               exceeded: true,
               contact: detail.contact || "",
-            });
-            showToast("免费体验额度已用尽，可申请更多额度", true);
+            };
+            renderQuota(quotaPayload);
+            showQuotaModal(quotaPayload);
             state.isLoading = false;
             state.abortController = null;
             setSendButtonLoading(false);
