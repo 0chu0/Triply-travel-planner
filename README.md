@@ -14,6 +14,7 @@
 - **MCP 工具接入**：高德（天气 / 地图）、Tavily 搜索、AIGOHOTEL 酒店、VariFlight 航班。
 - **流式对话**：SSE（Server-Sent Events）逐字返回，附带工具调用事件。
 - **用户系统 + 配额**：注册 / 登录 / JWT，按账号 Token 配额限流，超额提示申请提额。
+- **管理员额度看板**：管理员在「消息通知」中可查看每位游客的 token 用量、对话轮数与申请次数（仅显示邮箱，按用量降序），并一键通过提额。
 - **前后端一体**：FastAPI 直接托管前端，访问 `/app/` 即可使用。
 
 ## 二、技术栈
@@ -40,8 +41,7 @@ travel-planner/
 │   │   ├── store.py              # PostgreSQL Store（长期记忆）
 │   │   ├── memory_models.py      # 记忆数据模型
 │   │   ├── middleware.py         # 请求中间件
-│   │   ├── tracing.py            # Langfuse 追踪封装
-│   │   └── transport_state.py    # ⚠ 遗留死代码（全项目零引用，待删除）
+│   │   └── tracing.py            # Langfuse 追踪封装
 │   ├── agents/                   # Agent 编排
 │   │   ├── handoffs/             # 主 Agent + 步骤配置
 │   │   │   ├── step_config.py    # 流程话术 / 步骤定义
@@ -136,8 +136,9 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```ini
 # ===== LLM（阿里云百炼 / DashScope）=====
 DASHSCOPE_API_KEY=sk-xxx
-QWEN_MODEL_NAME=qwen3.8-flash
+QWEN_MODEL_NAME=qwen3.8-omni-flash     # 主对话模型（推理模型，思考链也计费；已在主对话代码中关闭思考模式 + 开启上下文缓存以省 token）
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+QWEN_MAX_TOKENS=2500                   # 单轮最大输出 token（防长回复，配合 GLOBAL_OUTPUT_RULES 的 8 行硬约束）
 
 # ===== 可观测 Langfuse =====
 LANGFUSE_PUBLIC_KEY=pk-lf-xxx
@@ -174,11 +175,11 @@ DEBUG=true
 
 # ===== 访问控制 =====
 ALLOW_OPEN_REGISTRATION=true          # 开放注册（配合配额防白嫖）
-BOOTSTRAP_ADMIN_USERNAME=admin        # 首次启动自动创建的管理员账号
+BOOTSTRAP_ADMIN_USERNAME=admin        # 首次启动自动创建的管理员账号（部署实例用手机号作为用户名；此处仅为示例）
 BOOTSTRAP_ADMIN_PASSWORD=travel2026
 
 # ===== Token 配额（应用层限额）=====
-DEFAULT_USER_TOKEN_QUOTA=3000         # 每账号默认 token 上限（实测单轮对话约 1.2 万 token，3000 只够发 1 条）
+DEFAULT_USER_TOKEN_QUOTA=3000         # 每账号默认 token 上限（优化后单轮约 0.2~0.6 万 token，3000 约够 1~2 轮；管理员通过提额后在其已用量上追加 2 万）
 QUOTA_REQUEST_CONTACT=                # 超额时页面展示的联系方式（邮箱/微信），会同时出现在侧边栏和弹窗里
 ```
 
@@ -278,7 +279,8 @@ docker compose up -d --build
     `GET /users/quota-requests`（提额申请列表，**只回邮箱、不回用户名**）、
     `POST /users/quota-requests/{request_id}/approve?quota_tokens=N`（批准加量）、
     `POST /users/quota-requests/{request_id}/reject`（忽略）、
-    `POST /users/quota/grant?username=xxx&quota_tokens=N`（按用户名直接改额度）
+    `POST /users/quota/grant?username=xxx&quota_tokens=N`（按用户名直接设置绝对额度）
+    `GET /users/admin/quota-dashboard`（管理员额度看板：每位游客用量 / 对话轮数 / 申请次数 / 最近申请状态，仅显示邮箱，按用量降序）
   - 会话：`POST ""` / `GET ""` / `GET /{id}` / `PATCH /{id}` / `DELETE /{id}`（conversations）
   - 对话：`POST /chat/stream/{conversation_id}`（SSE）、`GET /chat/history/{conversation_id}`
 
@@ -287,12 +289,15 @@ docker compose up -d --build
 - `DEFAULT_USER_TOKEN_QUOTA` 控制每账号默认额度；`token_usage.quota_tokens=0` 表示跟随全局默认。
 - 额度在**每轮对话开始前**校验，超额对话被 402 暂停。
 - **超额时的用户侧体验**：前端侧边栏额度条 + 独立弹窗都会展示 `QUOTA_REQUEST_CONTACT`（点击可复制），
-  并提供「申请更多额度」自助提交入口。
+  并提供「申请更多额度」自助提交入口；弹窗内另有「刷新额度」按钮（强制跳过浏览器缓存重新拉取 `/usage`），
+  管理员审批通过后游客点此即可立即恢复对话，无需刷新页面。
 - **管理员侧**：登录管理员账号后侧边栏出现「消息通知」入口（带未处理角标），
-  点开可见所有提额申请——**为保护隐私只显示电子邮箱**，可一键「通过」（默认加 2 万）或「忽略」。
+  点开可见所有提额申请——**为保护隐私只显示电子邮箱**，可一键「通过」（默认在已用量基础上追加 2 万）或「忽略」。
   前端通过 `GET /me` 返回的 `is_admin` 字段决定是否显示该入口。
 - 单独提额（admin）：`POST /api/v1/users/quota/grant?username=xxx&quota_tokens=N`（需知道用户名）；
   走通知列表则用 `POST /api/v1/users/quota-requests/{request_id}/approve?quota_tokens=N`（只需 request_id，前端拿不到用户名）。
+  > 语义区别：`approve` 为「追加式」——新额度 = 当前已用量 + N，确保游客永远拿到 N 个全新可用 token（即使已用量已超旧额度也生效）；
+  > `grant` 为「绝对值式」——直接把额度设为 N（传 0 则跟随全局默认）。
 - `ALLOW_OPEN_REGISTRATION=true` 放开注册，配合配额防止被白嫖。
 
 ## 十三、运维命令速查
