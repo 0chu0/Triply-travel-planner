@@ -14,7 +14,7 @@ from app.utils.logger import app_logger
 load_dotenv()
 
 model = ChatOpenAI(
-    model="qwen-turbo",  # 使用轻量级模型
+    model=settings.qwen_model_name,  # 跟随主模型，消灭 qwen-turbo 独立账
     base_url=settings.qwen_base_url,
     api_key=settings.dashscope_api_key,
     temperature=0,  # 重排序需要确定性
