@@ -3,7 +3,7 @@
 """
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.models.base import get_db, async_session_maker
@@ -127,10 +127,21 @@ async def get_current_user_info(
 
 @router.get("/usage", response_model=UsageResponse)
 async def get_my_usage(
+        response: Response,
         user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db)
 ):
-    """获取当前账号的 token 用量与配额（前端用于展示进度条/余量）"""
+    """
+    获取当前账号的 token 用量与配额（前端用于展示进度条/余量）
+
+    该接口会被前端频繁刷新（额度看板、弹窗「刷新额度」按钮），
+    必须显式禁止一切缓存（浏览器启发式缓存 / 中间代理），
+    否则管理员点「通过」后，游客端可能一直拿到旧的 GET 缓存，
+    出现「审批通过了但前端额度不更新」的假死现象。
+    """
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+
     usage = await get_or_create_usage(db, user.id)
     await db.commit()
 

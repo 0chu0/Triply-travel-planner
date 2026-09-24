@@ -1742,9 +1742,15 @@
       async function loadUsage() {
         if (!state.token) return;
         try {
-          const res = await fetch(`${getApiBase()}/api/v1/users/usage`, {
-            headers: { Authorization: `Bearer ${state.token}` },
-          });
+          // 防浏览器启发式缓存：额度是审批/结算实时变化的数据，
+          // 一旦命中旧 GET 缓存，就会出现"管理员通过了但页面不更新"的假死。
+          const res = await fetch(
+            `${getApiBase()}/api/v1/users/usage?_t=${Date.now()}`,
+            {
+              headers: { Authorization: `Bearer ${state.token}` },
+              cache: "no-store",
+            }
+          );
           if (res.status === 401) return logout();
           if (!res.ok) return;
           renderQuota(await res.json());
@@ -1902,9 +1908,15 @@
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-arrows-rotate fa-spin"></i> 刷新中';
         try {
-          const res = await fetch(`${getApiBase()}/api/v1/users/usage`, {
-            headers: { Authorization: `Bearer ${state.token}` },
-          });
+          // no-store + 时间戳双保险：绕过浏览器对 GET /usage 的启发式缓存，
+          // 确保这里一定打到后端拿最新数据（审批通过后立刻生效的关键）。
+          const res = await fetch(
+            `${getApiBase()}/api/v1/users/usage?_t=${Date.now()}`,
+            {
+              headers: { Authorization: `Bearer ${state.token}` },
+              cache: "no-store",
+            }
+          );
           if (!res.ok) {
             showToast("刷新失败，请稍后重试", true);
             return;
