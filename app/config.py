@@ -38,7 +38,11 @@ class Settings(BaseSettings):
         alias="QWEN_BASE_URL"
     )
     qwen_temperature: float = 0.7
-    qwen_max_tokens: int = 8000
+    # 单轮最大输出 token 数。
+    # 关键成本阀门：8000 → 2500 让"长输出"成为不可能，
+    # 配合 GLOBAL_OUTPUT_RULES 的"单次回复 ≤ 8 行"硬约束，从源头堵住单轮 token 爆炸。
+    # 如果业务需要更长回答，按 step 单点覆盖即可（不要直接调大这个默认值）。
+    qwen_max_tokens: int = 2500
 
     # ============== Langfuse 追踪配置（替代 LangSmith） ==============
     langfuse_public_key: str = Field(default="", alias="LANGFUSE_PUBLIC_KEY")

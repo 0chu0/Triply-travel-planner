@@ -13,6 +13,7 @@ from app.models.base import get_db, async_session_maker
 from app.models.user import User
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.models.usage import QuotaRequest
 from app.schemas.message import MessageCreate
 from app.api.dependencies import get_current_user
 from app.agents.handoffs.travel_agent import create_travel_agent
@@ -305,7 +306,17 @@ async def stream_chat(
     # 配额硬拦截：额度用尽 → 402，前端据此展示「额度不足 + 申请入口」
     usage = await get_or_create_usage(db, user.id)
     await db.commit()
-    payload = build_usage_payload(usage)
+
+    # 顺手查一下有没有待处理申请，让 402 payload 里的 has_pending_request
+    # 也带上正确状态，前端的申请按钮就能正确显示「申请已提交」并置灰
+    pending_row = await db.execute(
+        select(QuotaRequest.id)
+        .where(QuotaRequest.user_id == user.id)
+        .where(QuotaRequest.status == "pending")
+        .limit(1)
+    )
+    has_pending = pending_row.first() is not None
+    payload = build_usage_payload(usage, has_pending_request=has_pending)
 
     if payload["exceeded"]:
         raise HTTPException(

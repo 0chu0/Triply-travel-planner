@@ -12,6 +12,7 @@ from app.models.usage import QuotaRequest
 from app.schemas.user import (
     UserRegister, UserLogin, UserResponse, TokenResponse,
     UsageResponse, QuotaRequestCreate,
+    AdminQuotaDashboardRow, AdminQuotaDashboardResponse,
 )
 from app.utils.security import hash_password, verify_password, create_access_token
 from app.utils.quota import get_or_create_usage, build_usage_payload, effective_quota
@@ -132,7 +133,18 @@ async def get_my_usage(
     """获取当前账号的 token 用量与配额（前端用于展示进度条/余量）"""
     usage = await get_or_create_usage(db, user.id)
     await db.commit()
-    return UsageResponse(**build_usage_payload(usage))
+
+    # 是否已有待处理的提额申请：决定前端「申请更多额度」按钮的可用状态。
+    # 单独查一次（简单可读），数据量很小（每用户最多几条），无需聚合查询。
+    pending_row = await db.execute(
+        select(QuotaRequest.id)
+        .where(QuotaRequest.user_id == user.id)
+        .where(QuotaRequest.status == "pending")
+        .limit(1)
+    )
+    has_pending = pending_row.first() is not None
+
+    return UsageResponse(**build_usage_payload(usage, has_pending_request=has_pending))
 
 
 @router.post("/quota-request")
@@ -359,6 +371,102 @@ async def grant_quota(
 
     app_logger.info(f"🔧 管理员调整额度: {username} → {quota_tokens}")
     return build_usage_payload(usage)
+
+
+@router.get("/admin/quota-dashboard", response_model=AdminQuotaDashboardResponse)
+async def admin_quota_dashboard(
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    管理员额度看板（按邮箱展示每位账号的用量与申请次数）。
+
+    设计要点
+    --------
+    1. 出于保密只回传「邮箱」，不返回用户名/UUID；
+       管理员如需进一步对单个账号加量，仍走 /quota-requests/{request_id}/approve。
+    2. quota_tokens 字段已经做过 effective_quota 换算（0 自动落到全局默认），
+       前端可直接拿来计算百分比，不用再理解"0 代表跟随默认"这条规则。
+    3. 申请次数单独聚合（count + last_status），与用量表解耦，
+       即使用户从未产生对话（request_count=0），也能看到他提过几次申请。
+    """
+    _require_admin(user)
+
+    # 1) 拉所有账号 + 用量
+    users_stmt = (
+        select(
+            User.id,
+            User.email,
+            TokenUsage.used_tokens,
+            TokenUsage.quota_tokens,
+            TokenUsage.request_count,
+        )
+        .select_from(User)
+        .outerjoin(TokenUsage, User.id == TokenUsage.user_id)
+    )
+    user_rows = (await db.execute(users_stmt)).all()
+
+    # 2) 聚合：每个账号的「申请总次数」
+    app_count_stmt = (
+        select(
+            QuotaRequest.user_id,
+            func.count(QuotaRequest.id).label("app_count"),
+        )
+        .group_by(QuotaRequest.user_id)
+    )
+    app_count_map = {
+        row.user_id: int(row.app_count or 0)
+        for row in (await db.execute(app_count_stmt)).all()
+    }
+
+    # 3) 取每个账号最近一次申请的状态/时间：直接按时间倒序扫一遍，
+    #    数据量小（仅管理员端看板），无需 window function / DISTINCT ON。
+    last_by_user: dict = {}
+    last_at_by_user: dict = {}
+    reqs_stmt = select(
+        QuotaRequest.user_id, QuotaRequest.status, QuotaRequest.created_at
+    ).order_by(QuotaRequest.created_at.desc())
+    for req in (await db.execute(reqs_stmt)).all():
+        if req.user_id not in last_by_user:
+            last_by_user[req.user_id] = req.status
+            last_at_by_user[req.user_id] = req.created_at
+
+    items: list[dict] = []
+    total_used = 0
+    total_quota = 0
+    for row in user_rows:
+        # 用 build_usage_payload 的同款公式换算实际配额（含 0 → 全局默认）
+        eff_quota = effective_quota(
+            type("U", (), {"quota_tokens": row.quota_tokens})()
+        )
+        used = int(row.used_tokens or 0)
+        total_used += used
+        total_quota += eff_quota
+
+        items.append({
+            "email": row.email or "",
+            "used_tokens": used,
+            "quota_tokens": eff_quota,
+            "remaining_tokens": max(0, eff_quota - used),
+            "request_count": int(row.request_count or 0),
+            "application_count": app_count_map.get(row.id, 0),
+            "last_request_at": (
+                last_at_by_user[row.id].isoformat()
+                if last_at_by_user.get(row.id)
+                else None
+            ),
+            "last_request_status": last_by_user.get(row.id),
+        })
+
+    # 按「用量降序」排序：把最费 token 的账号放前面看
+    items.sort(key=lambda x: x["used_tokens"], reverse=True)
+
+    return {
+        "items": items,
+        "total_users": len(items),
+        "total_used_tokens": total_used,
+        "total_quota_tokens": total_quota,
+    }
 
 
 async def bootstrap_admin():

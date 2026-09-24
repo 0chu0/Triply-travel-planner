@@ -814,6 +814,39 @@
         border-top: 1px solid rgba(255, 255, 255, 0.45);
       }
 
+      /* 快速提问 chip：把"出发地/日期/人数预算/风格"做成可点按钮，
+         降低首次用户输入成本 + 让模型更早拿到结构化字段、减少反问轮数 */
+      .quick-chips {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+      }
+      .quick-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 5px 11px;
+        border: 1px solid rgba(184, 77, 110, 0.25);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.55);
+        color: var(--primary-deep);
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.18s;
+      }
+      .quick-chip:hover {
+        background: rgba(184, 77, 110, 0.12);
+        border-color: rgba(184, 77, 110, 0.5);
+        transform: translateY(-1px);
+      }
+      .quick-chip i {
+        font-size: 11px;
+        opacity: 0.85;
+      }
+
       .chat-input-wrapper {
         display: flex;
         align-items: flex-end;
@@ -1120,6 +1153,104 @@
         color: var(--text-light);
       }
 
+      /* ===== 管理员面板：Tab 切换 ===== */
+      .admin-tabs {
+        display: flex;
+        gap: 6px;
+        margin: 4px 0 14px;
+        padding: 4px;
+        background: rgba(184, 77, 110, 0.08);
+        border-radius: var(--radius-sm);
+      }
+      .admin-tab {
+        flex: 1;
+        padding: 8px 12px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--text-light);
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.18s;
+      }
+      .admin-tab.active {
+        background: #fff;
+        color: var(--primary-deep);
+        box-shadow: 0 1px 3px rgba(184, 77, 110, 0.18);
+      }
+
+      /* ===== 管理员额度看板 ===== */
+      .dashboard-summary {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 12px;
+        padding: 12px;
+        background: rgba(184, 77, 110, 0.06);
+        border-radius: var(--radius-sm);
+        font-size: 12px;
+      }
+      .dashboard-summary .item {
+        flex: 1;
+        text-align: center;
+      }
+      .dashboard-summary .label {
+        color: var(--text-light);
+        font-size: 11px;
+      }
+      .dashboard-summary .value {
+        margin-top: 4px;
+        font-size: 16px;
+        font-weight: 800;
+        color: var(--primary-deep);
+      }
+      .dashboard-row {
+        padding: 11px 0;
+        border-bottom: 1px solid rgba(184, 77, 110, 0.14);
+      }
+      .dashboard-row:last-of-type {
+        border-bottom: none;
+      }
+      .dashboard-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      .dashboard-email {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--primary-deep);
+        word-break: break-all;
+      }
+      .dashboard-meta {
+        font-size: 11px;
+        color: var(--text-light);
+        margin-top: 4px;
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .dashboard-bar {
+        height: 6px;
+        background: rgba(184, 77, 110, 0.12);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .dashboard-bar-fill {
+        height: 100%;
+        background: linear-gradient(135deg, #b84d6e, #d4789a);
+        transition: width 0.3s;
+      }
+      .dashboard-bar-fill.warn {
+        background: linear-gradient(135deg, #d97a40, #e8a060);
+      }
+      .dashboard-bar-fill.danger {
+        background: linear-gradient(135deg, #c0405a, #d4789a);
+      }
+
       /* 响应式 */
       @media (max-width: 900px) {
         .app-container {
@@ -1388,6 +1519,22 @@
         </div>
 
         <div class="chat-input-area">
+          <!-- 快速提问 chip：降低用户输入成本 + 让模型拿到结构化字段（出发/时间/人数/预算）-->
+          <!-- 点击会插入到输入框，用户可继续编辑再发送；不直接发送，避免误触 -->
+          <div class="quick-chips" id="quickChips">
+            <button class="quick-chip" type="button" onclick="insertChip('我打算从北京出发')">
+              <i class="fa-solid fa-location-dot"></i> 从哪出发
+            </button>
+            <button class="quick-chip" type="button" onclick="insertChip('我准备 10 月 2 日出发')">
+              <i class="fa-regular fa-calendar"></i> 什么时候去
+            </button>
+            <button class="quick-chip" type="button" onclick="insertChip('2 位成人，预算人均 3000 以内')">
+              <i class="fa-solid fa-user-group"></i> 几个人/预算
+            </button>
+            <button class="quick-chip" type="button" onclick="insertChip('这次更想：吃吃喝喝为主')">
+              <i class="fa-solid fa-utensils"></i> 想怎么玩
+            </button>
+          </div>
           <div class="chat-input-wrapper">
             <textarea
               class="chat-input"
@@ -1430,18 +1577,29 @@
       </div>
     </div>
 
-    <!-- 管理员通知：提额申请列表（只显示邮箱） -->
+    <!-- 管理员通知：提额申请列表 + 额度看板（只显示邮箱） -->
     <div class="modal-overlay hidden" id="adminModal">
       <div class="modal-card">
-        <h3><i class="fa-solid fa-bell"></i> 额度申请通知</h3>
+        <h3><i class="fa-solid fa-bell"></i> 管理员控制台</h3>
         <p class="modal-desc">
-          以下账号的免费额度已用尽并提交了申请。为保护用户隐私，这里只显示电子邮箱；
-          点「通过」会立即为其提升额度。
+          以下账号的邮箱、用量与申请记录。出于隐私只显示电子邮箱，
+          点「通过」会立即为其提升额度，「额度看板」可查看每位账号的总用量与申请次数。
         </p>
+        <div class="admin-tabs">
+          <button class="admin-tab active" id="adminTabRequests" onclick="switchAdminTab('requests')">
+            申请列表
+          </button>
+          <button class="admin-tab" id="adminTabDashboard" onclick="switchAdminTab('dashboard')">
+            额度看板
+          </button>
+        </div>
         <div id="adminList"><div class="admin-empty">加载中...</div></div>
+        <div id="adminDashboard" style="display: none">
+          <div class="admin-empty">加载中...</div>
+        </div>
         <div class="modal-actions">
           <button class="modal-btn ghost" onclick="hideAdminModal()">关闭</button>
-          <button class="modal-btn" onclick="loadAdminRequests(true)">刷新</button>
+          <button class="modal-btn" id="adminRefreshBtn" onclick="refreshAdminTab()">刷新</button>
         </div>
       </div>
     </div>
@@ -1624,9 +1782,23 @@
               ? `<br>联系方式：${escapeHtml(u.contact)}`
               : "可提交申请获取更多额度。");
           btn.style.display = "block";
+          // 按是否有待处理申请来决定按钮状态：
+          // - 有 pending：置灰显示「申请已提交」，避免重复点击产生无效请求
+          // - 无 pending：复位为可用状态，支持管理员通过/忽略后再次申请
+          // 这里必须显式复位 disabled，否则上一次点击的状态会卡住
+          if (u.has_pending_request) {
+            btn.disabled = true;
+            btn.textContent = "申请已提交";
+          } else {
+            btn.disabled = false;
+            btn.textContent = "申请更多额度";
+          }
         } else {
           tip.style.display = "none";
           btn.style.display = "none";
+          // 没超额时也要复位按钮文字（隐藏不显示，但下次超额时不能是旧的「申请已提交」）
+          btn.disabled = false;
+          btn.textContent = "申请更多额度";
         }
       }
 
@@ -1685,12 +1857,24 @@
         currentQuotaContact = (u && u.contact) || "";
         const text = document.getElementById("quotaContactText");
         const hint = document.getElementById("quotaContactHint");
+        const modalBtn = document.getElementById("quotaModalApplyBtn");
         if (!text || !hint) return;
 
         text.textContent = currentQuotaContact || "请联系管理员开通更多额度";
         hint.textContent = currentQuotaContact
           ? "点上方可直接复制，把这条信息发给管理员即可"
           : "管理员暂未配置联系方式，可点下方按钮自助提交申请";
+
+        // 复位 modal 申请按钮：避免上次点击残留 disabled 状态导致用户卡死
+        if (modalBtn) {
+          if (u && u.has_pending_request) {
+            modalBtn.disabled = true;
+            modalBtn.textContent = "申请已提交";
+          } else {
+            modalBtn.disabled = false;
+            modalBtn.textContent = "申请更多额度";
+          }
+        }
 
         document.getElementById("quotaModal").classList.remove("hidden");
       }
@@ -1877,9 +2061,120 @@
         }
       }
 
+      // ===== 管理员控制台：Tab 切换 + 额度看板 =====
+      let adminCurrentTab = "requests";
+
+      function switchAdminTab(tabName) {
+        adminCurrentTab = tabName;
+        const tabReq = document.getElementById("adminTabRequests");
+        const tabDash = document.getElementById("adminTabDashboard");
+        const listEl = document.getElementById("adminList");
+        const dashEl = document.getElementById("adminDashboard");
+        if (!tabReq || !tabDash || !listEl || !dashEl) return;
+
+        if (tabName === "requests") {
+          tabReq.classList.add("active");
+          tabDash.classList.remove("active");
+          listEl.style.display = "block";
+          dashEl.style.display = "none";
+          loadAdminRequests(false);
+        } else {
+          tabReq.classList.remove("active");
+          tabDash.classList.add("active");
+          listEl.style.display = "none";
+          dashEl.style.display = "block";
+          loadAdminDashboard(false);
+        }
+      }
+
+      function refreshAdminTab() {
+        if (adminCurrentTab === "dashboard") loadAdminDashboard(true);
+        else loadAdminRequests(true);
+      }
+
+      async function loadAdminDashboard(showError) {
+        if (!state.token || !(state.user && state.user.is_admin)) return;
+        const container = document.getElementById("adminDashboard");
+        if (!container) return;
+        container.innerHTML = '<div class="admin-empty">加载中...</div>';
+        try {
+          const res = await fetch(
+            `${getApiBase()}/api/v1/users/admin/quota-dashboard`,
+            { headers: { Authorization: `Bearer ${state.token}` } }
+          );
+          if (!res.ok) {
+            if (showError) showToast("获取额度看板失败", true);
+            container.innerHTML = '<div class="admin-empty">获取失败，请稍后重试</div>';
+            return;
+          }
+          renderAdminDashboard(await res.json());
+        } catch (e) {
+          if (showError) showToast("网络异常，请稍后重试", true);
+          container.innerHTML = '<div class="admin-empty">网络异常，请稍后重试</div>';
+        }
+      }
+
+      function renderAdminDashboard(payload) {
+        const container = document.getElementById("adminDashboard");
+        if (!container) return;
+        const items = payload.items || [];
+        if (!items.length) {
+          container.innerHTML = '<div class="admin-empty">还没有任何账号</div>';
+          return;
+        }
+
+        const summary = `
+          <div class="dashboard-summary">
+            <div class="item">
+              <div class="label">账号数</div>
+              <div class="value">${payload.total_users || items.length}</div>
+            </div>
+            <div class="item">
+              <div class="label">总消耗 token</div>
+              <div class="value">${formatTokens(payload.total_used_tokens || 0)}</div>
+            </div>
+            <div class="item">
+              <div class="label">总配额</div>
+              <div class="value">${formatTokens(payload.total_quota_tokens || 0)}</div>
+            </div>
+          </div>`;
+
+        const rows = items
+          .map((it) => {
+            const pct = it.quota_tokens > 0
+              ? Math.min(100, Math.round((it.used_tokens / it.quota_tokens) * 100))
+              : 0;
+            const fillClass = pct >= 100 ? "danger" : pct >= 80 ? "warn" : "";
+            const lastLabel = it.last_request_status
+              ? `${QUOTA_STATUS_TEXT[it.last_request_status] || it.last_request_status} ${it.last_request_at ? "· " + formatDateTime(it.last_request_at) : ""}`
+              : "从未申请";
+            return `
+          <div class="dashboard-row">
+            <div class="dashboard-head">
+              <div class="dashboard-email">${escapeHtml(it.email || "（未填写邮箱）")}</div>
+              <div class="dashboard-meta" style="margin-top:0">
+                申请 ${it.application_count || 0} 次
+              </div>
+            </div>
+            <div class="dashboard-bar">
+              <div class="dashboard-bar-fill ${fillClass}" style="width:${pct}%"></div>
+            </div>
+            <div class="dashboard-meta">
+              <span>已用 ${formatTokens(it.used_tokens)} / ${formatTokens(it.quota_tokens)}（${pct}%）</span>
+              <span>对话 ${it.request_count || 0} 轮</span>
+              <span>${lastLabel}</span>
+            </div>
+          </div>`;
+          })
+          .join("");
+
+        container.innerHTML = summary + rows;
+      }
+
       function openAdminModal() {
         document.getElementById("adminModal").classList.remove("hidden");
-        loadAdminRequests(true);
+        // 用 switchAdminTab 走完整流程：根据当前 tab 决定显示申请列表还是额度看板
+        switchAdminTab(adminCurrentTab || "requests");
       }
 
       function hideAdminModal() {
@@ -2339,6 +2634,18 @@
         }
       }
 
+      // 快速 chip：把"半结构化"模板塞进输入框，用户可继续修改再发送
+      // ——比让模型"从零问 5 项"省一轮对话；也比直接整段代发更尊重用户语境。
+      function insertChip(text) {
+        const el = document.getElementById("chatInput");
+        if (!el) return;
+        const cur = el.value.trim();
+        el.value = cur ? cur + "，" + text : text;
+        el.focus();
+        // 触发表单高度自适应
+        el.dispatchEvent(new Event("input"));
+      }
+
       function autoResizeTextarea() {
         const el = document.getElementById("chatInput");
         el.addEventListener("input", function () {
@@ -2367,6 +2674,10 @@
         let s = String(text);
         s = s.replace(/\*\*([\s\S]+?)\*\*/g, "【$1】"); // **强调** → 【强调】
         s = s.replace(/__([\s\S]+?)__/g, "【$1】"); // __强调__ → 【强调】
+        // 行首 * 列表项（Markdown bullet）→ 去掉 * 前缀
+        s = s.replace(/(^|\n)[ \t]*\*[ \t]+/g, "$1");
+        // 斜体 *xxx* → 去掉星号（前端不渲染斜体，留着只会看到裸 *）
+        s = s.replace(/\*([^*\n]+?)\*/g, "$1");
         // 行首 # 标题 → 【标题】；若已是【…】就只去掉 #，避免出现【【…】】
         s = s.replace(/^[ \t]*#{1,6}[ \t]*(.+)$/gm, function (m, t) {
           return t.indexOf("【") === 0 ? t : "【" + t + "】";
@@ -2374,6 +2685,7 @@
         s = s.replace(/```[a-zA-Z0-9]*/g, ""); // 去掉代码块围栏
         s = s.replace(/`/g, ""); // 去掉行内反引号
         s = s.replace(/\*\*/g, ""); // 清掉落单的 **
+        s = s.replace(/\*/g, ""); // 兜底清掉所有残留 *
         return s;
       }
 

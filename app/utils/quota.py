@@ -37,7 +37,7 @@ def effective_quota(usage: Optional[TokenUsage]) -> int:
     return int(settings.default_user_token_quota)
 
 
-def build_usage_payload(usage: Optional[TokenUsage]) -> dict:
+def build_usage_payload(usage: Optional[TokenUsage], has_pending_request: bool = False) -> dict:
     """组装给前端展示的用量信息"""
     quota = effective_quota(usage)
     used = int(usage.used_tokens or 0) if usage else 0
@@ -53,6 +53,8 @@ def build_usage_payload(usage: Optional[TokenUsage]) -> dict:
         "exceeded": quota > 0 and used >= quota,
         # 便于前端在页面上展示「如何申请」
         "contact": settings.quota_request_contact,
+        # 是否有待处理申请：决定前端按钮是否可点
+        "has_pending_request": has_pending_request,
     }
 
 

@@ -51,8 +51,32 @@ class UsageResponse(BaseModel):
     request_count: int
     exceeded: bool
     contact: str = ""
+    # 当前账号是否已有「待处理」的提额申请：
+    # - true  → 前端按钮置灰显示「申请已提交」，避免重复点击造成无效申请
+    # - false → 按钮可用「申请更多额度」，管理员通过/忽略后即可再次提交
+    has_pending_request: bool = False
 
 
 class QuotaRequestCreate(BaseModel):
     """提额申请"""
     reason: str = Field(default="", max_length=500)
+
+
+class AdminQuotaDashboardRow(BaseModel):
+    """管理员额度看板单行：每位账号一行用量摘要"""
+    email: str
+    used_tokens: int
+    quota_tokens: int  # 实际生效配额（0 时回落到全局默认，这里已换算成绝对值）
+    remaining_tokens: int
+    request_count: int  # 对话轮数（来自 token_usage.request_count）
+    application_count: int  # 提额申请次数（来自 quota_request 行数）
+    last_request_at: Optional[str] = None
+    last_request_status: Optional[str] = None  # pending / approved / rejected
+
+
+class AdminQuotaDashboardResponse(BaseModel):
+    """管理员额度看板整体响应"""
+    items: list[AdminQuotaDashboardRow]
+    total_users: int
+    total_used_tokens: int
+    total_quota_tokens: int
