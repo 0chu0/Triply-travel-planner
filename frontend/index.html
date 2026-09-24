@@ -1567,6 +1567,13 @@
         <div class="modal-actions">
           <button class="modal-btn ghost" onclick="hideQuotaModal()">稍后再说</button>
           <button
+            class="modal-btn ghost"
+            id="quotaModalRefreshBtn"
+            onclick="refreshQuotaStatus()"
+          >
+            <i class="fa-solid fa-arrows-rotate"></i> 刷新额度
+          </button>
+          <button
             class="modal-btn"
             id="quotaModalApplyBtn"
             onclick="requestMoreQuota(true)"
@@ -1881,6 +1888,43 @@
 
       function hideQuotaModal() {
         document.getElementById("quotaModal").classList.add("hidden");
+      }
+
+      // 弹窗里的「刷新额度」按钮：重新拉一次 /usage，
+      // - 如果管理员已通过（exceeded=false）→ 自动关弹窗并提示可以继续用；
+      // - 如果还有 pending 申请 → 提示「申请已提交，等待管理员处理」；
+      // - 否则说明用户其实还没提交申请，提示并保持弹窗。
+      // 解决「管理员点通过后游客端不知道」的 UX 死锁问题。
+      async function refreshQuotaStatus() {
+        const btn = document.getElementById("quotaModalRefreshBtn");
+        if (!btn || btn.disabled) return;
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-arrows-rotate fa-spin"></i> 刷新中';
+        try {
+          const res = await fetch(`${getApiBase()}/api/v1/users/usage`, {
+            headers: { Authorization: `Bearer ${state.token}` },
+          });
+          if (!res.ok) {
+            showToast("刷新失败，请稍后重试", true);
+            return;
+          }
+          const data = await res.json();
+          renderQuota(data);
+          if (!data.exceeded) {
+            hideQuotaModal();
+            showToast("🎉 管理员已为您开通更多额度，可以继续使用了～");
+          } else if (data.has_pending_request) {
+            showToast("申请已提交，等待管理员处理～");
+          } else {
+            showToast("请先点右侧「申请更多额度」提交申请", true);
+          }
+        } catch (e) {
+          showToast("网络异常，请稍后重试", true);
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+        }
       }
 
       function copyQuotaContact() {

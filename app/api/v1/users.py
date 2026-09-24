@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.models.base import get_db, async_session_maker
 from app.models.user import User
-from app.models.usage import QuotaRequest
+from app.models.usage import QuotaRequest, TokenUsage
 from app.schemas.user import (
     UserRegister, UserLogin, UserResponse, TokenResponse,
     UsageResponse, QuotaRequestCreate,
