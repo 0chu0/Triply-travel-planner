@@ -306,20 +306,32 @@ async def approve_quota_request(
     批准一条提额申请（仅管理员）。
 
     按 request_id 定位申请人（前端只知道邮箱，不知道用户名），
-    把其账号配额设为 quota_tokens，并把该申请标记为 approved。
+    并把该申请标记为 approved。
+
+    【关键语义】quota_tokens 是「追加量」而非「总配额」：
+        新配额 = 当前已用量 + quota_tokens
+    为什么不能直接设成绝对值——如果游客已用量已经超过授予量
+    （例如已用 5.5 万、授予 2 万），绝对值写法会让 used >= quota
+    依旧成立，批准等于没批，游客端立刻还是 402。
+    追加式写法则保证游客一定获得 quota_tokens 个全新可用 token，
+    且 used_tokens 的累计账目不被清零，额度看板数据保持真实。
     """
     _require_admin(user)
 
     req = await _get_quota_request(db, request_id)
-    new_quota = max(0, int(quota_tokens))
+    grant = max(0, int(quota_tokens))
 
     usage = await get_or_create_usage(db, req.user_id)
-    usage.quota_tokens = new_quota
+    current_used = int(usage.used_tokens or 0)
+    usage.quota_tokens = current_used + grant# 新配额 = 已用 + 2万
     req.status = "approved"
     await db.commit()
     await db.refresh(usage)
 
-    app_logger.info(f"✅ 管理员批准提额: {req.email} → {new_quota} tokens")
+    app_logger.info(
+        f"✅ 管理员批准提额: {req.email} → 追加 {grant} tokens"
+        f"（已用 {current_used}，新配额 {usage.quota_tokens}）"
+    )
 
     return {
         "status": "approved",
