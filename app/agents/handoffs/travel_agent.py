@@ -35,7 +35,10 @@ def get_llm():
         api_key=settings.dashscope_api_key,
         temperature=settings.qwen_temperature,
         max_tokens=settings.qwen_max_tokens,
-        streaming=True
+        streaming=True,
+        # 主对话关闭思考模式（与子 Agent 一致）：xhigh 推理每轮烧 2k~4k token，
+        # 关闭后思维链归零、历史最干净；同时开上下文缓存，固定系统提示命中折扣。
+        extra_body={"enable_thinking": False, "enable_context_cache": True}
     )
 
 
