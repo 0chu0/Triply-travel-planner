@@ -47,13 +47,3 @@ class DocumentManager:
             doc.metadata["category"] = "destinations"
 
         return documents
-
-    def load_food_documents(self) -> List[Document]:
-        """加载美食文档"""
-        # 类似实现
-        pass
-
-    def load_accommodation_documents(self) -> List[Document]:
-        """加载住宿文档"""
-        # 类似实现
-        pass
