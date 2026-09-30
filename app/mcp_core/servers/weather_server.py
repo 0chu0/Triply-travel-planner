@@ -81,6 +81,24 @@ INTERNATIONAL_CITIES = {
 }
 
 
+# 国家前缀集合（用于规范化："日本东京" -> "东京"，避免 LLM 带国家名导致查不到）
+COUNTRY_PREFIXES = set(INTERNATIONAL_CITIES.values())
+
+
+def _normalize_location(location: str) -> str:
+    """去掉开头的国家名与结尾的'市/区/县'，得到纯城市名，
+    兼容 LLM 传入'日本东京''泰国曼谷'这类带国家前缀的写法。"""
+    loc = (location or "").strip()
+    for country in COUNTRY_PREFIXES:
+        # 仅当后面还有城市名时才剥离（避免把"新加坡"本身剥空）
+        if loc.startswith(country) and len(loc) > len(country):
+            loc = loc[len(country):].strip()
+            break
+    if loc.endswith(("市", "区", "县")):
+        loc = loc[:-1]
+    return loc
+
+
 async def _resolve_adcode(location: str) -> str:
     """
     将城市名/地名解析为高德 adcode；若入参已是 6 位 adcode 则直接返回。
@@ -89,16 +107,18 @@ async def _resolve_adcode(location: str) -> str:
     location = (location or "").strip()
     if location.isdigit() and len(location) == 6:
         return location
+    norm = _normalize_location(location)
     # 1) 本地速查表（稳定、不耗配额、不限流）
     if location in CITY_ADCODE_MAP:
         return CITY_ADCODE_MAP[location]
+    if norm and norm in CITY_ADCODE_MAP:
+        return CITY_ADCODE_MAP[norm]
     # 兼容带"市"后缀的写法（如"西安市" -> "西安"）
-    if location.endswith("市") and location[:-1] in CITY_ADCODE_MAP:
-        return CITY_ADCODE_MAP[location[:-1]]
     # 2) 海外城市：高德天气仅覆盖中国，直接返回友好提示标记，避免无效 geo 调用
-    base = location[:-1] if location.endswith("市") else location
-    if base in INTERNATIONAL_CITIES:
-        return f"__INTL__:{INTERNATIONAL_CITIES[base]}"
+    #    兼容"日本东京""泰国曼谷"等带国家前缀的写法
+    for key in (location, norm):
+        if key and key in INTERNATIONAL_CITIES:
+            return f"__INTL__:{INTERNATIONAL_CITIES[key]}"
     # 3) 兜底：调用高德 geo 接口（处理表外城市/区县）
     if not AMAP_API_KEY:
         return ""
