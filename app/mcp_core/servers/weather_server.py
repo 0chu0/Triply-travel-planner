@@ -162,8 +162,12 @@ async def get_weather_forecast(city_adcode: str) -> str:
     if adcode.startswith("__INTL__:"):
         country = adcode.split(":", 1)[1]
         return json.dumps({
-            "info": f"海外城市（{country}）暂不支持实时天气查询，请自行查看目的地当地天气",
             "supported": False,
+            "info": f"海外城市（{country}）不在实时天气覆盖范围内（高德天气仅覆盖中国境内）",
+            "guidance": (
+                "请如实告知用户：该城市的实时天气暂无法提供，建议出发前用当地天气App自行确认；"
+                "禁止编造温度与天气现象，禁止用其他城市的数据代替。"
+            ),
         }, ensure_ascii=False)
 
     async with httpx.AsyncClient(timeout=10.0) as client:

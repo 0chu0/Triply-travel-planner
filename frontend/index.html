@@ -2605,6 +2605,12 @@
                 }
               }
             }
+
+            // 流结束但一个字都没收到（后端异常/流被中断）：不要留空气泡
+            if (!fullText.trim()) {
+              fullText = "本次没有生成内容，请再发一次或换个说法试试。";
+              updateMessage(msgId, fullText);
+            }
           } else {
             const data = await res.json();
             const msg =

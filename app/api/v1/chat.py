@@ -234,6 +234,15 @@ async def generate_sse_stream(
                 assistant_message = recovered
                 yield sse({"type": "token", "content": recovered})
 
+        # 5.1 最后一道防线：兜底也拿不到内容时，绝不能让用户看到空气泡。
+        #     正常流程不应触发；一旦触发说明模型本轮没产出正文，用一个明确提示
+        #     代替空白，同时留下日志便于定位。
+        if not assistant_message.strip():
+            notice = "抱歉，这次没有生成有效内容。请再发一次，或换个说法试试。"
+            app_logger.warning("⚠️ 本轮模型未产出任何正文，已补发兜底提示")
+            assistant_message = notice
+            yield sse({"type": "token", "content": notice})
+
         # 6. 保存 AI 回复
         if assistant_message.strip():
             await save_message(
