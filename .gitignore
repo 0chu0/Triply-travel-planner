@@ -39,3 +39,6 @@ id_ed25519*
 
 # OS
 .DS_Store
+
+# 本地讲解稿（用户明确不进仓库，仅本地留档）
+Triply_LLM讲解稿.md
