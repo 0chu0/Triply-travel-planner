@@ -24,7 +24,7 @@ from app.tools.state_transition import (
     go_back_to_budget,
     check_current_progress
 )
-from app.tools.mcp_tools import get_hotel_tools, get_weather_tools, get_search_tools, get_date_tools
+from app.tools.mcp_tools import get_hotel_tools, get_weather_tools, get_search_tools, get_date_tools, get_map_poi_tools
 from app.tools.memory_tools import update_travel_style_tool, update_dietary_restriction_tool, update_food_preference_tool, add_travel_record_tool, update_accommodation_preference_tool
 
 
@@ -242,6 +242,7 @@ async def get_step_config():
                 *weather_tools,
                 *search_tools,
                 *hotel_tools,
+                *map_poi_tools,
                 update_travel_style_tool,
                 add_travel_record_tool
             ],
@@ -388,6 +389,7 @@ async def get_step_config():
                 go_back_to_requirement,
                 go_back_to_transport,
                 *hotel_tools,
+                *map_poi_tools,
                 query_destination_info,
                 *weather_tools,
                 update_accommodation_preference_tool

@@ -20,6 +20,7 @@ class MCPClientManager:
     _instance: Optional['MCPClientManager'] = None
     _client: Optional[MultiServerMCPClient] = None
     _tools: Optional[List] = None
+    _server_tools: Optional[dict] = None  # 服务名 -> 该服务的工具列表（按能力聚合用）
     _lock = asyncio.Lock()
 
     # 项目根目录（用于 stdio 服务）
@@ -30,6 +31,8 @@ class MCPClientManager:
     ENV_VARS["PYTHONPATH"] = PROJECT_ROOT + os.pathsep + ENV_VARS.get("PYTHONPATH", "")
 
     # 服务器配置
+    # capability：声明该服务“能提供什么能力”，供 mcp_tools 按标签聚合工具，
+    # 替代原先对工具名做子串匹配的脆弱写法（外部服务改工具名会静默失效）。
     SERVER_CONFIGS = {
         # ========== 自建服务（stdio） ==========
         "weather": {
@@ -37,22 +40,26 @@ class MCPClientManager:
             "args": ["-m", "app.mcp_core.servers.weather_server"],
             "transport": "stdio",
             "env": ENV_VARS,
+            "capability": ["weather"],
         },
         "search": {
             "command": "python",
             "args": ["-m", "app.mcp_core.servers.search_server"],
             "transport": "stdio",
             "env": ENV_VARS,
+            "capability": ["search"],
         },
 
         # ========== 外部服务（HTTP） ==========
         "amap": {
             "url": f"https://mcp.amap.com/mcp?key={os.getenv('AMAP_API_KEY', '')}",
             "transport": "http",
+            "capability": ["map_poi"],  # 高德全量工具（POI/路线/天气）统一归为地图能力；不挂 weather 以免 15 个工具误并入天气步骤
         },
         "VariFlight-Aviation": {  # 航班服务（已验证可用；URL 不含尾斜杠，避免 307→HTTP 降级）
             "url": f"https://ai.variflight.com/servers/aviation/mcp?api_key={os.getenv('VARIFLIGHT_API_KEY', '')}",
             "transport": "streamable_http",
+            "capability": ["flight"],  # 日期能力已迁至本地工具，不再依赖本服务的 getTodayDate
         },
         "aigohotel-mcp": {
             "url": "https://mcp.aigohotel.com/mcp",
@@ -60,7 +67,8 @@ class MCPClientManager:
             "headers": {
                 "Authorization": f"Bearer {os.getenv('AIGOHOTEL_MCP_API')}",
                 "Content-Type": "application/json"
-            }
+            },
+            "capability": ["hotel"],
         },
     }
 
@@ -103,9 +111,11 @@ class MCPClientManager:
         # （langchain_mcp_adapters 的 get_tools() 内部用 TaskGroup/gather 且无 return_exceptions，
         #  任一服务失败会整体抛错，导致全部工具丢失；故改为逐个加载并容错）
         all_tools = []
+        self._server_tools = {}  # 服务名 -> 该服务的工具列表（供按能力聚合用）
         for name in configs:
             try:
                 tools = await self._client.get_tools(server_name=name)
+                self._server_tools[name] = tools
                 all_tools.extend(tools)
                 app_logger.info(f"✅ {name}: 加载 {len(tools)} 个工具")
             except Exception as e:
@@ -138,6 +148,27 @@ class MCPClientManager:
         # 否则重新获取
         self._tools = await self._client.get_tools()
         return self._tools
+
+    def get_tools_by_capability(self, capability: str) -> List:
+        """
+        按能力标签聚合 MCP 工具（基于已加载的 per-server 缓存，O(1) 标签匹配）。
+
+        替代原先对工具名做子串匹配的写法：外部服务即便改名/换供应商，
+        只要 SERVER_CONFIGS 里该服务的 capability 标签不变，工具就能被正确聚合，不会静默失效。
+
+        Args:
+            capability: 能力标签，如 "weather" / "hotel" / "search" / "map_poi" / "flight"
+        Returns:
+            LangChain 工具列表（来自所有声明了该能力的服务）
+        """
+        if self._server_tools is None:
+            return []
+        result = []
+        for name, tools in self._server_tools.items():
+            caps = self.SERVER_CONFIGS.get(name, {}).get("capability", [])
+            if capability in caps:
+                result.extend(tools)
+        return result
 
 
 async def get_mcp_client(servers: List[str] = None) -> MCPClientManager:
