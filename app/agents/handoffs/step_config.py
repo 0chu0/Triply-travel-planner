@@ -42,12 +42,14 @@ async def get_step_config():
         search_tools = await get_search_tools()
         date_tools = await get_date_tools()
         weather_tools = await get_weather_tools()
+        map_poi_tools = await get_map_poi_tools()
     except Exception as e:
         print(f"MCP工具加载失败: {e}")
         hotel_tools = []
         search_tools = []
         date_tools = []
         weather_tools = []
+        map_poi_tools = []
 
     return {
         # ========== 步骤 1：需求收集 ==========

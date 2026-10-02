@@ -8,22 +8,13 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 from app.config import settings
 from app.mcp_core.client import get_mcp_client
+from app.tools.mcp_tools import get_map_poi_tools
 from app.utils.logger import app_logger
 
 
 async def _get_amap_tools():
-    """获取高德地图相关工具"""
-    manager = await get_mcp_client()
-    all_tools = await manager.get_tools()
-
-    # 筛选地图工具
-    amap_tools = [
-        tool for tool in all_tools
-        if any(keyword in tool.name.lower() for keyword in [
-            'maps_direction_driving', 'maps_geo'
-        ])
-    ]
-
+    """获取高德地图相关工具（按 map_poi 能力标签聚合，不再对工具名做子串匹配）"""
+    amap_tools = await get_map_poi_tools()
     app_logger.info(f"🚗 地图工具: {[t.name for t in amap_tools]}")
     return amap_tools
 

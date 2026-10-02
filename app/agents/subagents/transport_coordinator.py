@@ -18,25 +18,16 @@ from app.config import settings
 from app.agents.subagents.flight_agent import create_flight_subagent
 from app.agents.subagents.driving_agent import create_driving_subagent
 from app.mcp_core.client import get_mcp_client
+from app.tools.mcp_tools import get_map_poi_tools, get_date_tools
 from app.utils.logger import app_logger
 
 
 # ============== 获取辅助工具 ==============
 
 async def _get_auxiliary_tools():
-    """获取辅助工具"""
-    manager = await get_mcp_client()
-    all_tools = await manager.get_tools()
-
-    # 筛选辅助工具
-    aux_tools = [
-        tool for tool in all_tools
-        if any(keyword in tool.name.lower() for keyword in [
-            'getfutureweather', 'get-current-date',
-            'maps_around_search'
-        ])
-    ]
-
+    """获取辅助工具（按能力标签聚合，不再对工具名做子串匹配）"""
+    aux_tools = await get_map_poi_tools()    # amap 周边搜索（map_poi 能力）
+    aux_tools += await get_date_tools()       # 本地日期工具
     app_logger.info(f"🛠️ 辅助工具: {[t.name for t in aux_tools]}")
     return aux_tools
 
@@ -128,8 +119,8 @@ async def create_transport_coordinator():
 2. plan_driving_route：规划自驾路线（适合深度游，自由灵活）
 
 【辅助工具（按需使用）】
-- getFutureWeatherByAirport：查询机场未来天气（已下线，禁止调用）
-- get-current-date：获取今天日期（调用需要时间的工具前，获取实时时间）
+- get_today_date：获取今天日期（调用需要时间的工具前，获取实时时间）
+- maps_around_search：查询周边 POI（餐厅/地铁/景点等，用于行程周边推荐）
 
 【能力边界（重要）】
 - 本项目不接入 12306，不具备火车/高铁车次、票价、余票的查询能力。
@@ -148,11 +139,11 @@ async def create_transport_coordinator():
 5. 可以主动询问用户偏好（时间优先还是价格优先）
 
 【注意事项】
-- 用户说的今天和明天之类的词要以 get-current-date 获取的时间为标准
+- 用户说的今天和明天之类的词要以 get_today_date 获取的时间为标准
 - 一定要调用工具获取实时信息，不要编造数据
 - 如果查询失败，告知用户并提供替代方案
 - 航班需要提供日期，自驾不需要
-- 调用工具前，先调用 get-current-date 获取今天日期
+- 调用工具前，先调用 get_today_date 获取今天日期
 - 查询航班时用城市三字码：北京=BJS、上海=SHA、西安=SIA（注意不是 XIY）
 - query_flights 返回的清单已是系统精选结果（⭐=准点率100%，标注「优先推荐航班准点率100%航线」）：直接沿用该精选清单展示，最多 8 条，禁止重新罗列更长的清单，禁止把同一份清单输出两遍，已取消航班无需再提
 - 如果航班返回"暂无数据"：如实说明该航线该日期暂无航班数据，给出两个出口（换日期 / 改乘高铁自行购票），不要让用户空等，也不要反复用同样的参数重试

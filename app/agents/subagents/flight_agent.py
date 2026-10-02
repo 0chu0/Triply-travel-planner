@@ -10,6 +10,7 @@ from langchain.agents import create_agent
 from langchain_core.tools import StructuredTool
 from app.config import settings
 from app.mcp_core.client import get_mcp_client
+from app.tools.date_tools import get_today_date
 from app.utils.logger import app_logger
 
 
@@ -185,17 +186,13 @@ def _wrap_with_flight_filter(orig_tool):
 
 
 async def _get_aviation_tools():
-    """获取航班相关的MCP工具"""
+    """获取航班相关工具（按 flight 能力标签聚合，不再对工具名做子串匹配）"""
     manager = await get_mcp_client()
-    all_tools = await manager.get_tools()
+    flight_tools = manager.get_tools_by_capability("flight")
 
-    # 筛选航班工具
-    aviation_tools = [
-        tool for tool in all_tools
-        if any(keyword in tool.name.lower() for keyword in [
-            'flight', 'aviation', 'searchflights', 'gettodaydate'
-        ])
-    ]
+    # 去掉 VariFlight 可能暴露的旧日期工具，改用本地确定性日期工具（解耦单点依赖）
+    aviation_tools = [t for t in flight_tools if t.name.lower() != "gettodaydate"]
+    aviation_tools.append(get_today_date)  # 本地日期工具
 
     # 对大结果集工具包一层精简过滤（准点率100%优先 + 截断，大幅节省 token）
     aviation_tools = [
@@ -228,7 +225,7 @@ async def create_flight_subagent():
 
 【可用工具】
 1. 【日期与基础信息】
-   - `getTodayDate`: 获取今天日期（用于用户提供相对日期时）
+   - `get_today_date`: 获取今天日期（用于用户提供相对日期时）
 
 2. 【航班查询（核心）】
    - `searchFlightsByDepArr`: 按出发/到达城市查询航班（depcity/arrcity 必须传 IATA 城市三字码）
@@ -247,7 +244,7 @@ async def create_flight_subagent():
 
 【工作流程】
 1. 分析用户查询，提取出发地、目的地、日期
-2. 如果用户说"明天"等相对日期，先调用getTodayDate获取今天日期
+2. 如果用户说"明天"等相对日期，先调用get_today_date获取今天日期
 3. 查城市对时用 depcity/arrcity（城市码）；查具体机场时才用 dep/arr（机场码）
 4. 日期格式必须是 YYYY-MM-DD
 
