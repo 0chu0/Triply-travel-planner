@@ -100,7 +100,17 @@ class MCPClientManager:
 
         # 默认启用所有服务
         servers = servers or list(self.SERVER_CONFIGS.keys())
-        configs = {k: v for k, v in self.SERVER_CONFIGS.items() if k in servers}
+        raw_configs = {k: v for k, v in self.SERVER_CONFIGS.items() if k in servers}
+
+        # 剥离自定义元数据键（capability），只保留 langchain_mcp_adapters 认识的字段
+        # （stdio: command/args/env/transport；http: url/transport/headers）。
+        # 否则新版 adapter 会把 capability 当作会话参数转发给 _create_*_session()，
+        # 报 unexpected keyword argument 'capability'，导致全部 MCP 服务加载失败。
+        # capability 仍由 get_tools_by_capability() 从 SERVER_CONFIGS 读取，不影响聚合。
+        configs = {
+            name: {k: v for k, v in cfg.items() if k != "capability"}
+            for name, cfg in raw_configs.items()
+        }
 
         app_logger.info(f"初始化 MCP: {list(configs.keys())}")
 

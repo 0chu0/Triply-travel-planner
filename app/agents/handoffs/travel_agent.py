@@ -5,6 +5,7 @@ Handoffs 主 Agent
 from app.tools.mcp_tools import get_all_mcp_tools
 from app.tools.router_query import query_destination_info
 from app.tools.transport_query import query_transport_options
+from app.tools.date_tools import get_today_date
 from langchain.agents import create_agent
 from app.config import settings
 from app.core.state import TravelState
@@ -72,6 +73,12 @@ async def create_travel_agent():
         *ALL_ROLLBACK_TOOLS,
         query_destination_info,
         query_transport_options,
+        # 本地日期工具：必须在此登记。step_config 会把它注入 request.tools，
+        # 而 create_agent 只允许中间件使用"创建时已登记"的工具（否则报
+        # Middleware added tools that the agent doesn't know how to execute）。
+        # v1.5 把日期能力从 VariFlight 的 getTodayDate(MCP) 迁到本地工具后
+        # 曾漏登记，导致需求收集步骤一被注入就抛错。
+        get_today_date,
         *all_mcp_tools,
         *MEMORY_TOOLS,
     ]
