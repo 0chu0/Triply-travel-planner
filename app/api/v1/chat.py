@@ -24,6 +24,7 @@ from app.utils.quota import (
     record_usage,
     estimate_tokens,
 )
+from app.core.tracing import get_langfuse_handler, flush_langfuse
 
 router = APIRouter(prefix="/chat", tags=["对话"])
 
@@ -161,13 +162,15 @@ async def generate_sse_stream(
         turn_start_index = await get_state_message_count(agent, conversation_id)
 
         # 4. 使用 astream_events 获取更细粒度的流式输出
+        #    注入 Langfuse 链路追踪：未配置时 handler 为 None，自动跳过，不影响主流程
+        langfuse_handler = get_langfuse_handler()
+        run_config = {"configurable": {"thread_id": conversation_id}}
+        if langfuse_handler is not None:
+            run_config["callbacks"] = [langfuse_handler]
+
         async for event in agent.astream_events(
                 input_data,
-                config={
-                    "configurable": {
-                        "thread_id": conversation_id
-                    }
-                },
+                config=run_config,
                 version="v2"
         ):
             kind = event.get("event")
@@ -222,6 +225,12 @@ async def generate_sse_stream(
                 })
 
             await asyncio.sleep(0)
+
+        # 4.1 请求结束，刷新 Langfuse 上报队列（失败不影响主流程）
+        try:
+            flush_langfuse()
+        except Exception:
+            pass
 
         # 5. 兜底：白名单若因框架升级误杀，会变成空白回复（比泄漏更糟），
         #    此时用图的最终状态补发一次完整回答。

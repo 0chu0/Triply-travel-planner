@@ -134,7 +134,7 @@ async def get_step_config():
                 update_dietary_restriction_tool,
                 update_food_preference_tool,
                 add_travel_record_tool
-                # ⚠️ 故意不放 *weather_tools / *hotel_tools / query_transport_options：
+                # 不放 *weather_tools / *hotel_tools / query_transport_options：
                 # 阶段 1 的唯一职责是收集需求，给攻略/榜单/航班就是"跑偏"。
                 # 物理上拿不到工具，就只能专注于对话收齐核心信息。
             ],
