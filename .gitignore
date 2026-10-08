@@ -16,6 +16,10 @@ logs/
 data/vectorstore/
 update.tar.gz
 
+# 本地一次性探测脚本与输出（只读调试产物，不入库）
+_probe_*
+_probe_out.txt
+
 # SSH / TLS keys — 绝不入库（曾误在仓库根目录生成过密钥对）
 *.pem
 *.key
