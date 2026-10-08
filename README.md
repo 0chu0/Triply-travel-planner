@@ -4,14 +4,16 @@
 「主 Agent 编排 → 子 Agent（机票 / 自驾 / 目的地路由）→ 工具层（RAG 知识库、天气、搜索、MCP 服务）→ FastAPI 流式返回」
 完成个性化行程规划。支持流式 SSE 输出、多轮对话记忆、Token 配额与开放注册。
 
+> 当前版本：**v1.5**（2026-10-02）；修订记录见 `docs/Triply_修订记录_v1.5.md`。
+
 ---
 
 ## 一、功能特性
 
 - **多 Agent 协作**：LangGraph 状态图 + handoff 编排，主 Agent 按步骤调度子 Agent。
 - **多轮记忆**：PostgreSQL + pgvector 作为 Checkpointer / Store，按会话持久化上下文。
-- **RAG 知识库**：BM25 + Dense 向量 + RRF 倒数排名融合，叠加 LLM 重排与长上下文重排。
-- **MCP 工具接入**：高德（天气 / 地图）、Tavily 搜索、AIGOHOTEL 酒店、VariFlight 航班。
+- **RAG 知识库**：BM25 + Dense 向量 + RRF 倒数排名融合，叠加 LLM 重排与长上下文重排；内置 48 份热门目的地知识文档。
+- **MCP 工具接入**：**5 个 MCP 服务 / 29 个工具** —— 高德地图（POI / 路线）、自建天气服务、Tavily 搜索、AIGOHOTEL 酒店、VariFlight 航班（详见第十节）。
 - **流式对话**：SSE（Server-Sent Events）逐字返回，附带工具调用事件。
 - **用户系统 + 配额**：注册 / 登录 / JWT，按账号 Token 配额限流，超额提示申请提额。
 - **管理员额度看板**：管理员在「消息通知」中可查看每位游客的 token 用量、对话轮数与申请次数（仅显示邮箱，按用量降序），并一键通过提额。
@@ -23,8 +25,8 @@
 |---|---|
 | 语言 / 框架 | Python 3.13, FastAPI, LangGraph, LangChain |
 | 大模型 | 阿里云百炼 Qwen（DashScope 兼容 OpenAI 接口） |
-| 存储 | PostgreSQL 16 + pgvector, Redis, Chroma（本地向量库） |
-| 可观测 | Langfuse（追踪 / 评测） |
+| 存储 | PostgreSQL（16+，生产为 17）+ pgvector，Chroma（本地向量库） |
+| 可观测 | Langfuse（链路追踪 Tracing；评测未接入） |
 | 部署 | Docker Compose，阿里云轻量应用服务器 |
 
 ## 三、目录结构
@@ -62,6 +64,7 @@ travel-planner/
 │   │   ├── mcp_tools.py          # MCP 工具封装
 │   │   ├── memory_tools.py       # 记忆读写工具
 │   │   ├── rag_tools.py          # RAG 检索工具（运行时自建向量库）
+│   │   ├── date_tools.py         # 本地日期工具 get_today_date（v1.5 起不再依赖航班服务）
 │   │   ├── router_query.py       # 路由查询
 │   │   └── transport_query.py    # 交通查询
 │   ├── rag/                      # RAG 管线
@@ -83,13 +86,18 @@ travel-planner/
 ├── frontend/                     # 前端（index.html + 背景图）
 ├── scripts/                      # 运维脚本
 │   ├── init_db.py                # 初始化数据库表（create_all）
-│   └── test_llm.py               # LLM 连通性自测
-├── docs/                         # 文档（含架构核查报告）
+│   ├── ingest.py                 # 知识库一键重建（重建 Chroma 向量索引）
+│   └── test_llm.py               # LLM 连通性自测 + Langfuse 追踪冒烟
+├── docs/                         # 文档（架构核查报告 / 修订记录 / 配额申请说明）
 ├── docker-compose.yml            # 本地/服务器部署编排
 ├── Dockerfile                    # 后端镜像
 ├── pyproject.toml                # 项目依赖（uv）
 ├── requirements.txt              # pip 一键依赖（与 pyproject 同步）
-└── .env                          # 环境变量（密钥，**已 gitignore，切勿提交**）
+├── tests/                        # 测试（RAG / MCP / Agent 流程 / API）
+├── deploy.ps1 / deploy.bat       # 本地一键部署脚本（Windows）
+├── deploy_db.sh                  # 服务器一键起 PG(pgvector) 容器
+├── .env.example                  # 环境变量模板（纯占位符，可安全入库）
+└── .env                          # 环境变量（真实密钥，**已 gitignore，切勿提交**）
 ```
 
 
@@ -97,7 +105,13 @@ travel-planner/
 
 - **Python 3.13**
 - **Docker + Docker Compose**（本地或服务器部署）
-- **PostgreSQL 16 + pgvector**、**Redis**（本地可用 Docker 起，或远程）
+- **PostgreSQL（16+，生产为 17）+ pgvector**（本地可用 `deploy_db.sh` 或 Docker 起，也可用远程）
+
+> **关于 Redis**：本项目**不使用 Redis**。依赖里虽声明了 `redis==5.0.0`，但代码中没有任何 Redis 客户端调用
+> （无 `import redis`、无 `Redis(...)`、`settings.redis_url` 也无人使用）。持久化与复用全部由 PostgreSQL 承担：
+> `AsyncPostgresSaver`（多轮记忆）+ `AsyncPostgresStore`（长期记忆）+ `psycopg_pool`（连接池），
+> 进程内复用仅用 `functools.lru_cache`（配置单例、Langfuse 客户端与 handler）。
+> 因此无需准备 Redis 服务，`.env` 里也没有 `REDIS_*` 变量。
 
 ## 五、本地快速开始
 
@@ -105,7 +119,7 @@ travel-planner/
 
 ```bash
 uv sync                         # 按 pyproject.toml 创建虚拟环境并装依赖
-cp .env.example .env            # 没有示例则手动创建 .env（见第六节）
+cp .env.example .env            # 复制模板后填入自己的密钥（字段说明见第六节）
 uv run python scripts/init_db.py        # 建表
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -136,16 +150,16 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```ini
 # ===== LLM（阿里云百炼 / DashScope）=====
 DASHSCOPE_API_KEY=sk-xxx
-QWEN_MODEL_NAME=qwen3.8-omni-flash     # 主对话模型（推理模型，思考链也计费；已在主对话代码中关闭思考模式 + 开启上下文缓存以省 token）
+QWEN_MODEL_NAME=qwen3.8-omni-flash     # 主对话模型（推理模型，思考链也计费；已在主对话代码中关闭思考模式 + 开启上下文缓存以省 token）。注意：代码默认值为 qwen3.7-flash（config.py:35），如需 3.8 必须在 .env 显式指定
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 QWEN_MAX_TOKENS=2500                   # 单轮最大输出 token（防长回复，配合 GLOBAL_OUTPUT_RULES 的 8 行硬约束）
 
-# ===== 可观测 Langfuse =====
+# ===== 可观测 Langfuse（可选；留空/占位则自动降级为不追踪，不影响对话）=====
 LANGFUSE_PUBLIC_KEY=pk-lf-xxx
 LANGFUSE_SECRET_KEY=sk-lf-xxx
 LANGFUSE_HOST=https://cloud.langfuse.com
 LANGFUSE_TRACING_ENABLED=true
-LANGFUSE_PROJECT=zhixing-travel-planer-dev
+LANGFUSE_PROJECT=zhixing-travel-planer-dev   # 仅标签字段：tracing.py 不读取它，实际项目由 public_key 决定
 
 # ===== 数据库（PostgreSQL + pgvector）=====
 POSTGRES_HOST=localhost
@@ -153,19 +167,13 @@ POSTGRES_PORT=5432
 POSTGRES_DB=travel_planner_db
 POSTGRES_USER=travel_user
 POSTGRES_PASSWORD=travel123456
-DATABASE_URL=postgresql://travel_user:travel123456@localhost:5432/travel_planner_db
-
-# ===== Redis =====
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=
+# DATABASE_URL 无需配置：连接串由上面 POSTGRES_* 自动拼装（见 config.py 的 database_url 属性）
 
 # ===== MCP / 第三方 API =====
-AMAP_API_KEY=xxx                      # 高德（天气/地图）
+AMAP_API_KEY=xxx                      # 高德（地图 POI/路线；天气由自建 weather_server 走高德天气 API）
 TAVILY_API_KEY=tvly-xxx               # Tavily 搜索
-VARIFLIGHT_API_KEY=sk-xxxx             # VariFlight 航班（已配置真实密钥；URL 不含尾斜杠）
-AIGOHOTEL_MCP_API=mcp_xxx             # AIGOHOTEL 酒店
+VARIFLIGHT_API_KEY=sk-xxxx            # VariFlight 航班（由 app/mcp_core/client.py 直接 os.getenv 读取，不在 config.Settings 中）
+AIGOHOTEL_MCP_API=mcp_xxx             # AIGOHOTEL 酒店（同上，用作 HTTP header 的 Bearer token）
 
 # ===== 应用 =====
 APP_ENV=development
@@ -179,13 +187,17 @@ BOOTSTRAP_ADMIN_USERNAME=admin        # 首次启动自动创建的管理员账�
 BOOTSTRAP_ADMIN_PASSWORD=travel2026
 
 # ===== Token 配额（应用层限额）=====
-DEFAULT_USER_TOKEN_QUOTA=3000         # 每账号默认 token 上限（优化后单轮约 0.2~0.6 万 token，3000 约够 1~2 轮；管理员通过提额后在其已用量上追加 2 万）
+DEFAULT_USER_TOKEN_QUOTA=3000         # 每账号默认 token 上限。注意：代码默认值为 200000（config.py:29），生产 .env 显式覆盖为 3000；实测单轮约 0.4~1.2 万 token（关闭思考 + max_tokens=2500 后约 0.4 万），故 3000 约够 0~1 轮，靠管理员提额兜底（默认在其已用量上追加 2 万）
 QUOTA_REQUEST_CONTACT=                # 超额时页面展示的联系方式（邮箱/微信），会同时出现在侧边栏和弹窗里
 ```
 
 > 说明：本文件里的「密钥」均为**第三方 API Token / 数据库密码 / 应用密钥**（如阿里云百炼
 > LLM Token、高德、Tavily、Langfuse、Postgres 密码），**不是云服务器的登录密钥**。
 > 云服务器（阿里云轻量）通过独立的 SSH 私钥登录，那把密钥不在这个仓库里。
+
+> ⚠️ **Docker 构建会把 `.env` 烤进镜像**：`Dockerfile` 末段有 `COPY .env /app/.env`（因为
+> `config.py` 直接读 `/app/.env`）。**切勿把构建出的 `travel-planner-backend` 镜像推送到公共仓库或分发给他人**，
+> 镜像层里含有你填入的真实密钥。若需对外分发，请改用运行时挂载 / secrets 注入的方式。
 
 ## 七、初始化数据库
 
@@ -197,6 +209,10 @@ python scripts/init_db.py
 `token_usage`、`quota_request` 等。新表会自动创建；若需给已有表加字段，需手写迁移。
 
 ## 八、Docker 本地部署
+
+> **前置条件**：`docker-compose.yml` **只编排 backend 一个服务**（`network_mode: host`），
+> **不包含 PostgreSQL / Redis**。请先确保 `localhost:5432` 上的 PostgreSQL(pgvector) 已就绪
+> （可用 `bash deploy_db.sh`，或改用远程库并同步改 `.env` 里的 `POSTGRES_*`），再执行建表与启动。
 
 ```bash
 docker compose up -d --build
@@ -230,8 +246,12 @@ scp -r E:\travel-planner root@<公网IP>:/root/travel-planner
 
 **3. 配置 `.env`**
 
-在服务器 `/root/travel-planner/.env` 填入真实密钥（DashScope / 高德 / Tavily 等）。
-**默认数据库与 Redis 用 Docker Compose 内置服务**，若用远程库请同步改 `DATABASE_URL` 等。
+在服务器 `/root/travel-planner/.env` 填入真实密钥（DashScope / 高德 / Tavily / Langfuse 等）。
+
+> ⚠️ **`docker-compose.yml` 只编排 backend 一个服务，不提供数据库**。PostgreSQL(pgvector) 需另行在
+> 同机以**独立容器**运行（生产用 `pgvector/pgvector:pg17`，把 5432 映射出来），backend 通过
+> `network_mode: host` 连 `localhost:5432`。若用远程库，同步改 `.env` 里的 `POSTGRES_*`
+> （连接串由它们自动拼装，无需配 `DATABASE_URL`）。Redis 不需要——本项目未使用。
 
 **4. 启动**
 
@@ -252,7 +272,7 @@ docker compose up -d --build
 |---|---|---|
 | 仅改前端（`frontend/`） | `docker compose up -d --force-recreate backend` | `docker-compose.yml` 已挂 `./frontend:/app/frontend`，**无需重建镜像** |
 | 改 `.env` | `docker compose up -d --force-recreate backend` | `restart` 不会重读 `env_file`，必须 force-recreate |
-| 改后端代码 | `docker compose up -d --build` | 需重建镜像 |
+| 改后端代码 | `docker compose up -d --force-recreate --build backend` | 需重建镜像（指定服务 + 强制重建，避免旧容器残留导致"改了没生效"） |
 
 **7. 小内存（2C2G）优化**
 
@@ -263,15 +283,34 @@ docker compose up -d --build
 
 集中配置在 `.env` 与 `app/config.py`、`app/mcp_core/`：
 
-- **高德**：`AMAP_API_KEY`（天气 / 地图）
+运行时共加载 **5 个 MCP 服务、29 个工具**（生产启动日志：`✅ 共加载 29 个 MCP 工具（来自 5 个服务）`）：
+
+| 服务 | 形态 | 工具数 | capability 标签 | 说明 |
+|---|---|---|---|---|
+| `weather`（自建） | stdio（FastMCP） | 1 | `weather` | 天气查询，内部走高德天气 API，带国内城市 adcode 速查表 + 海外城市友好兜底 |
+| `search`（自建） | stdio（FastMCP） | 1 | `search` | Tavily 联网搜索 |
+| `amap` | HTTP（`mcp.amap.com`） | 15 | `map_poi` | 高德官方全量工具（POI / 路线 / 天气），统一归为地图能力 |
+| `VariFlight-Aviation` | streamable_http | 9 | `flight` | 航班查询（URL 不含尾斜杠，避免 307→HTTP 降级） |
+| `aigohotel-mcp` | streamable_http | 3 | `hotel` | 酒店查询 |
+
+工具不是"全量挂给每个步骤"，而是按 `capability` 标签聚合后，由 `app/agents/handoffs/step_config.py`
+**按流程步骤注入**（例：需求收集阶段刻意不挂天气工具，专注收需求）。
+此外，**日期能力已本地化**：`app/tools/date_tools.py::get_today_date`，不再依赖航班服务的 `getTodayDate`。
+
+密钥配置位置：
+
+- **高德**：`AMAP_API_KEY`（地图；天气服务也复用它）
 - **Tavily**：`TAVILY_API_KEY`（联网搜索）
 - **AIGOHOTEL**：`AIGOHOTEL_MCP_API`（酒店查询，streamable_http）
-- **VariFlight**：`VARIFLIGHT_API_KEY`（航班，已验证可用，streamable_http；URL 不含尾斜杠，避免 307→HTTP 降级）
+- **VariFlight**：`VARIFLIGHT_API_KEY`（航班，已验证可用，streamable_http）
+
+> 后两个变量**不在 `config.Settings` 中**，由 `app/mcp_core/client.py` 直接 `os.getenv` 读取
+> （一个拼进 URL、一个放进 HTTP header）。
 ## 十一、API 说明
 
 - **Swagger 自描述契约**：`/docs`
 - **流式对话**：`POST /api/v1/chat/stream/{conversation_id}`（SSE）
-  - 事件类型：`token`（正文增量）、`tool_call`（调用工具）、`usage`（本轮额度快照）、`error`、`done`
+  - 每帧为一个 JSON 对象，字段 **`type`** 取值：`token`（正文增量）、`tool_call`（调用工具）、`usage`（本轮额度快照）、`error`、`done`
   - 超出配额返回 **402**，前端提示「申请更多额度」
 - **路由前缀 `/api/v1`**：
   - 用户：`POST /register`、`POST /login`、`GET /me`、`GET /usage`、`POST /quota-request`
@@ -310,7 +349,7 @@ uv run uvicorn app.main:app --reload --port 8000
 python scripts/init_db.py
 
 # Docker
-docker compose up -d --build                 # 改代码后
+docker compose up -d --force-recreate --build backend  # 改后端代码后
 docker compose up -d --force-recreate backend # 改 .env 或前端后
 docker compose logs -f backend                # 看日志
 docker compose down                           # 停止
@@ -319,6 +358,31 @@ docker compose down                           # 停止
 ssh root@<公网IP> "cd /root/travel-planner && docker compose up -d --force-recreate backend"
 ```
 
-## 十四、许可证
+## 十四、可观测性（Langfuse）
+
+Langfuse 用于**链路追踪**（Tracing；评测 / 数据集能力未接入）。生产链路已接线，不是"只配了环境变量"：
+
+| 环节 | 位置 | 说明 |
+|---|---|---|
+| handler 注入 | `app/api/v1/chat.py:166-169` | 生产 SSE 对话在 `agent.astream_events()` 的 `config` 里注入 `callbacks=[langfuse_handler]`（handler 为 None 时自动跳过） |
+| 上报刷新 | `app/api/v1/chat.py:231` | 流结束后调用 `flush_langfuse()`，`try/except` 包裹，失败不影响对话 |
+| 客户端封装 | `app/core/tracing.py` | 必须先显式构造 `Langfuse(...)` 完成"注册"，再建 `CallbackHandler`，否则 SDK 会退化成 fake 客户端静默丢 trace |
+| 降级保护 | `config.py::langfuse_enabled` | 未配置密钥 / 密钥仍是占位值（`REPLACE_ME`、`请替换`、`your-`）/ `LANGFUSE_TRACING_ENABLED=false` 时，`get_langfuse_handler()` 返回 `None`，主流程完全不受影响 |
+
+**如何验证**
+
+```bash
+# 1) 本地冒烟：确认密钥与项目匹配
+python scripts/test_llm.py     # 打印「📊 Langfuse 追踪已启用」且控制台出现一条测试 trace
+
+# 2) 线上：发一条真实对话后，到 Langfuse 控制台 Tracing 页刷新，应新增记录
+```
+
+**已知限制**：同一轮对话会在 Langfuse 里平铺成**多条并列记录**（1 条 `LangGraph` CHAIN + 若干条
+`ChatOpenAI` / `model` GENERATION），因为 LangGraph 子图/节点级 LLM run 的父子链路未完整挂载。
+时间戳相同即说明它们来自同一次请求，不是重复上报。若需按 `conversation_id` 归组成一条 trace，
+需要给 handler 配置 `session_id`（尚未实施）。
+
+## 十五、许可证
 
 自己学习，许可证另行约定。
