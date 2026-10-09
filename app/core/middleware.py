@@ -5,6 +5,7 @@ from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResp
 from typing import Callable, Any
 from app.core.state import TravelState
 from app.core.store import get_user_memory_service
+from app.core.llm import get_light_llm, get_main_llm
 from app.utils.logger import app_logger
 
 
@@ -126,13 +127,22 @@ class StepConfigMiddleware(AgentMiddleware):
         # 全局输出规范放最后（模型对结尾指令的跟随更好）
         system_prompt = f"{system_prompt}\n\n{GLOBAL_OUTPUT_RULES}"
 
+        # ========== 按步骤选择模型档位 ==========
+        # 权衡题（行程编排 / 预算 / 多约束冲突）走 main 档（旗舰价）；
+        # 选择题（需求收集 / 偏好确认 / 格式化输出）走 light 档（便宜 15~60 倍）。
+        # 本项目的 token 结构实测输入占 96%，所以"哪些轮次值得付旗舰价"是最大的成本阀门。
+        model_tier = step_config.get("model_tier", "main")
+        llm = get_light_llm() if model_tier == "light" else get_main_llm()
+
         # ========== 注入配置 ==========
         modified_request = request.override(
             system_prompt=system_prompt,
-            tools=step_config["tools"]
+            tools=step_config["tools"],
+            model=llm,
         )
 
         app_logger.info(f"✅ 已注入步骤配置: {len(step_config['tools'])} 个工具")
+        app_logger.info(f"🧠 模型档位: {model_tier} → {llm.model_name}")
 
         return await handler(modified_request)
 

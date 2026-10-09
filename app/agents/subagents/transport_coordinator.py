@@ -11,8 +11,8 @@
 整合三个 Subagents + 辅助工具
 """
 import asyncio
-from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
+from app.core.llm import build_chat_model
 from langchain.tools import tool
 from app.config import settings
 from app.agents.subagents.flight_agent import create_flight_subagent
@@ -43,13 +43,8 @@ async def create_transport_coordinator():
     - MCP辅助工具（酒店、天气、日期、周边搜索）
     """
 
-    llm = ChatOpenAI(
-        model=settings.qwen_model_name,
-        base_url=settings.qwen_base_url,
-        api_key=settings.dashscope_api_key,
-        temperature=0.7,
-        extra_body={"enable_thinking": False, "enable_context_cache": True}
-    )
+    # 协调器要做"航班 vs 自驾 vs 高铁"的多方案对比与推荐，属"权衡题" → 保留 main 档
+    llm = build_chat_model("main", temperature=0.7)
 
     # 异步创建子Agents
     flight_subagent = await create_flight_subagent()

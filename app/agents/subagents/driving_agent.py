@@ -4,9 +4,8 @@
 调用高德地图 MCP 的多个工具
 """
 import asyncio
-from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
-from app.config import settings
+from app.core.llm import build_chat_model
 from app.mcp_core.client import get_mcp_client
 from app.tools.mcp_tools import get_map_poi_tools
 from app.utils.logger import app_logger
@@ -22,13 +21,8 @@ async def _get_amap_tools():
 async def create_driving_subagent():
     """创建自驾路线规划 Subagent"""
 
-    llm = ChatOpenAI(
-        model=settings.qwen_model_name,
-        base_url=settings.qwen_base_url,
-        api_key=settings.dashscope_api_key,
-        temperature=0.1,
-        extra_body={"enable_thinking": False, "enable_context_cache": True}
-    )
+    # 自驾路线 = 参数抽取（起终点/途经点）+ 结果整理，属"抽取题" → light 档
+    llm = build_chat_model("light", temperature=0.1)
 
     # 异步获取工具
     amap_tools = await _get_amap_tools()

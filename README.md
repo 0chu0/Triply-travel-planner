@@ -24,7 +24,7 @@
 | 层 | 选型 |
 |---|---|
 | 语言 / 框架 | Python 3.13, FastAPI, LangGraph, LangChain |
-| 大模型 | 阿里云百炼 Qwen（DashScope 兼容 OpenAI 接口） |
+| 大模型 | 阿里云百炼 Qwen（DashScope 兼容 OpenAI 接口）；按环节分 `main` / `light` 两档，见 §十六 |
 | 存储 | PostgreSQL（16+，生产为 17）+ pgvector，Chroma（本地向量库） |
 | 可观测 | Langfuse（链路追踪 Tracing）；本地评测 CLI（`scripts/run_eval.py`，规则型 Golden Case 回归） |
 | 部署 | Docker Compose，阿里云轻量应用服务器 |
@@ -153,12 +153,16 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```ini
 # ===== LLM（阿里云百炼 / DashScope）=====
 DASHSCOPE_API_KEY=sk-xxx
-QWEN_MODEL_NAME=qwen3.8-max              # 主对话模型。代码默认值为 qwen3.7-flash（config.py:35），生产 .env 显式覆盖
+QWEN_MODEL_NAME=qwen3.8-max              # main 档（权衡题）模型。代码默认值为 qwen3.7-flash（config.py），生产 .env 显式覆盖
                                          # ⚠️ 百炼免费额度【按模型独立】，某一模型耗尽只会让该路径 403（AllocationQuota.FreeTierOnly），
                                          #    不影响其它模型——曾因此出现「RAG 改写链挂了但主对话正常」的诡异现象。
                                          #    2026-10-09 实测：qwen3.8-flash 与 qwen3.8-omni-flash 免费额度均已耗尽，改用 qwen3.8-max。
-                                         #    统一从 .env 读取、禁止在代码里写死模型名（见 app/rag/query_optimizer.py 注释）。
-                                         #    主对话强制 enable_thinking=False + enable_context_cache=True 以省 token。
+                                         #    统一从 .env 读取、禁止在代码里写死模型名（见 app/core/llm.py）。
+                                         #    两档均强制 enable_thinking=False + enable_context_cache=True 以省 token。
+QWEN_LIGHT_MODEL_NAME=qwen3.7-flash      # light 档（选择题）模型：查询改写 / 重排 / 意图分类 / 结构化抽取 / 简单问答。
+                                         #    输入单价 0.2 元/百万，比 qwen3.8-max（12 元）便宜 60 倍；这些环节答案有明确对错，
+                                         #    旗舰档带来的边际收益≈0。安全阀：把它设成与 QWEN_MODEL_NAME 相同 = 全量回退旗舰档。
+                                         #    分档清单与成本口径见 §十六。
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 QWEN_MAX_TOKENS=2500                   # 单轮最大输出 token（防长回复，配合 GLOBAL_OUTPUT_RULES 的 8 行硬约束）
 
@@ -407,6 +411,35 @@ python scripts/test_llm.py     # 打印「📊 Langfuse 追踪已启用」且控
 核心类 `step_path_score`（LCS 归一化）/ `tool_recall` / `tools_any_hit` / `final_step_match` / `requirement_fill_rate` / `subgraph_leak`；
 观察类 `latency_ms` / `total_tokens` / `tool_error_rate` / `turns_used`。
 
+**数据集：12 条具体是什么**（`scripts/eval_data/core_v1.json`，每条 = 一段脚本化的用户话术 + 一组断言）
+
+| 档位 | 用例 id | 分类 | 断言的是什么 |
+|---|---|---|---|
+| quick | `req_collect_no_dump` | 需求收集 | 需求模糊时"先反问"，不直接甩攻略 |
+| quick | `req_relative_date_uses_date_tool` | 需求收集 | 用户说"下个月/下周"必须先调日期工具拿真实日期 |
+| quick | `req_full_info_advances` | 需求收集 | 信息齐全后能主动推进，不会卡在第一步 |
+| quick | `req_weather_gated_in_step1` | 需求收集 | 首步不给天气工具（设计如此），要能承诺"下一步帮你查" |
+| quick | `format_no_markdown` | 输出规范 | 正文不含 `**`/`##`/`*`，且 ≤8 行 |
+| quick | `dest_weather_shown` | 目的地推荐 | 必须展示逐日实时天气 |
+| quick | `dest_overseas_no_fabricate` | 边界 | 海外城市天气：既不编造温度，也不说"没接天气" |
+| quick | `memory_pref_saved` | 记忆 | 用户说"海鲜过敏"要真的写进长期记忆 |
+| deep | `transport_rail_12306` | 交通规划 | 高铁：记录推进，但绝不承诺"帮你查车次" |
+| deep | `rollback_to_destination` | 回退 | 用户改主意时能回退到目的地步骤 |
+| deep | `itinerary_daily_structure` | 行程生成 | 能走到行程步骤并生成按天结构 |
+| deep | `budget_scope_disclosure` | 预算汇总 | 必须说清预算是否含往返大交通 |
+
+**一条用例怎么跑**：把 `turns` 里的用户话术按顺序逐轮灌进 Agent（脚本化用户，保证可复现），
+每轮用 `is_answer_stream_event` 抓正文，跑完后把「实际步骤路径 vs `expected.steps_path`」
+「实际调用的工具 vs `tools_expected`」「正文是否含 `must_not_contain`」等逐条比对，算出指标。
+
+**报告怎么读**（`scripts/eval_out/latest.md`）
+
+- 顶部「指标总览」表里，**门禁类**指标通过率必须为 1，否则判定 ❌ 未通过；
+  **核心类**看通过率趋势，**观察类**只看数值不判定。
+- 「用例明细」里 `未通过指标` 列直接告诉你哪条挂了；「失败详情」会贴出**完整多轮 transcript**
+  和该轮实际调用的工具名——定位问题时基本不用再回看日志。
+- `--baseline latest` 会额外输出一张与上一次 run 的对比表（哪些指标变差了）。
+
 ```bash
 python scripts/run_eval.py --validate        # 只校验数据集（秒级，改完数据集先跑这个）
 python scripts/run_eval.py --list            # 列出用例
@@ -422,6 +455,86 @@ python scripts/run_eval.py --tier all --baseline latest   # 跑全部并和上�
 `model`，其内部攻略流式输出会**穿透 `chat.py` 的正文白名单**混进用户可见正文（指标 `subgraph_leak` 可稳定复现）。
 根因是 `app/agents/routers/destination_router.py` 中 `_explore_agent.ainvoke(...)` 未透传 `config`。
 
-## 十六、许可证
+## 十六、模型分档与成本（降本）
+
+一个模型跑全链路是最省事的写法，但**不省钱**。本项目实测 token 结构是 **输入占 96%**
+（quick 档 8 条：平均输入 13,749 / 输出 560），成本几乎全部来自"每轮把上下文重放一遍"，
+于是"哪些环节配得上旗舰价"就成了最大的成本阀门。
+
+**实现**：`app/core/llm.py` 是全项目**唯一**定义"档位 → 模型名"的地方，杜绝某处硬编码模型名后、
+该模型免费额度用尽导致局部 403 却极难排查（历史上真实发生过）。
+
+| 档位 | 环境变量 | 代码默认值 | 承担什么活 |
+|---|---|---|---|
+| `main`（权衡题） | `QWEN_MODEL_NAME` | `qwen3.7-flash`（生产 `.env` 覆盖为 `qwen3.8-max`） | 跨约束推理 / 编排 / 计算 |
+| `light`（选择题） | `QWEN_LIGHT_MODEL_NAME` | `qwen3.7-flash` | 改写、重排、分类、结构化抽取、格式化、简单问答 |
+
+**主对话按步骤切档**：`step_config.py` 里每个步骤带一个 `model_tier`，
+`StepConfigMiddleware` 在每轮 `request.override(model=...)` 时按当前步骤换模型。
+
+| 步骤（`step_config.py`） | 档位 | 理由 |
+|---|---|---|
+| 需求收集 | main ⚠️ | 见下方说明：曾下沉 light 档并导致空回复，**已回退** |
+| 目的地推荐 | main | 季节适宜性 + 预算压力 + 风险替代，典型多约束权衡 |
+| 交通规划 | main | 时间 / 预算 / 是否中转，冲突最集中的一步 |
+| 住宿规划 | main | 预算等级 → 星级 / 区域 / 房型的换算 |
+| 餐饮规划 | light | 忌口确认 + 三种餐饮类型选择 |
+| 行程生成 | main | 动线 / 节奏 / 强度 / Plan B，旗舰能力的核心兑现点 |
+| 预算汇总 | main | 要算数、要讲清假设与波动项 |
+| 订单生成 | light | 格式化输出订单号 + 写出行记录 |
+
+> ⚠️ **需求收集为什么回退到 main**：它是最像"简单问答"的一步，最初按"选择题"下沉到了
+> `qwen3.7-flash`，但评测 `req_weather_gated_in_step1` **稳定复现（2/2）**一次参数缺失的无效工具调用
+> （`get_weather_forecast` 未传 `city_adcode` → `ToolException` → 该轮完全没有回复）；
+> 把 light 档换回 `qwen3.8-max` 后同一条用例不再报错。需求收集是**所有会话必经过**的步骤，
+> 一次空回复的代价远大于省下的 token，因此保留 main 档。想再试轻档只需改这一行并跑全量评测。
+> 这也说明一件事：**"哪个环节该降级"不能靠直觉，必须跑评测**。
+
+**链路上的固定分工**（非主对话）
+
+| 位置 | 档位 | 理由 |
+|---|---|---|
+| `app/rag/query_optimizer.py` 查询改写 | light | 把用户问题扩成检索变体，是选择题 |
+| `app/rag/reranker.py` 重排 | light | 给候选文档打相关性分，是选择题 |
+| `destination_router.py` 意图分类器 | light | explore / weather 二选一，是选择题 |
+| `destination_router.py` explore 子 Agent | light | 从知识库检索并抽取攻略片段 |
+| `subagents/flight_agent.py` 航班 | light | 城市三字码 / 日期参数抽取 + 结果整理 |
+| `subagents/driving_agent.py` 自驾 | light | 起终点参数抽取 + 结果整理 |
+| `subagents/transport_coordinator.py` 交通协调器 | main | 航班 vs 自驾 vs 高铁的多方案对比与推荐 |
+
+**官方单价**（元 / 百万 tokens，2026-10-09 核对百炼控制台与智能路由文档两处，口径一致）
+
+| 模型 | 输入 | 输入·缓存命中 | 输出 |
+|---|---|---|---|
+| qwen3.8-max | 12 | 1.5 | 36 |
+| qwen3.8-flash | 0.8（限时 5 折，原价 1.6） | 0.1 | 2.7（原价 5.4） |
+| qwen3.7-flash | 0.2 | 0.04 | 0.8 |
+
+> 思考 token 按输出价计费，所以两档都强制 `enable_thinking=False`。
+
+**安全阀**：把 `QWEN_LIGHT_MODEL_NAME` 设成与 `QWEN_MODEL_NAME` 同一个模型（例如都写 `qwen3.8-max`），
+等价于"全量回退到旗舰档"，**不需要改任何代码**。
+
+### 「未开缓存 / 缓存命中 60%」是什么 —— 和 Redis 无关
+
+成本估算里那两个柱子指的是**百炼（模型服务商）侧的上下文缓存 Context Cache**，
+不是本项目的应用层缓存，也**不需要 Redis**（本项目确认未使用 Redis，见 §二）。
+
+- **未开缓存**：每轮请求的输入 token 全部按原价计费（如 max 的 12 元 / 百万）。
+- **缓存命中 60%**：假设每轮输入里有 60% 是**前缀未变**的内容（系统提示 + 全局输出规范
+  + 工具 schema + 历史前段），被服务端缓存命中后按"缓存命中价"（1.5 元 / 百万，约原价 12.5%）
+  计费；剩下 40% 是本轮新增的用户输入与工具返回，仍按原价。
+
+我们通过在 `app/core/llm.py` 里传 `extra_body={"enable_context_cache": True}` 开启它。
+
+⚠️ 两点要注意：
+
+1. **60% 是假设值，不是实测值**。真实命中率可以从 Langfuse trace 的 usage 明细里读
+   （`cached_tokens` / `cache_read_input_tokens` vs `input_tokens`）。
+2. 这个开关只表示"允许命中"，**命中率取决于前缀是否稳定**。目前中间件每轮
+   `request.override(tools=...)` 会按步骤换工具集，工具 schema 一旦变化就会打断前缀、
+   拉低命中率——这是下一步值得查的优化点。
+
+## 十七、许可证
 
 自己学习，许可证另行约定。

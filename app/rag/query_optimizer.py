@@ -7,21 +7,19 @@ from typing import List
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from app.utils.logger import app_logger
-from langchain_openai import ChatOpenAI
-from app.config import settings
+from app.core.llm import build_chat_model
 
 load_dotenv()
 
 # 初始化模型
 # ⚠️ 不要硬编码模型名：曾写死 "qwen3.8-flash"，该模型免费额度用尽后
 # 整条 RAG 检索链直接抛 403（AllocationQuota.FreeTierOnly），
-# 而主对话用的 qwen3.8-omni-flash 却正常，极难排查。统一跟随 .env 里的主模型配置。
-model = ChatOpenAI(
-    model=settings.qwen_model_name,
-    base_url=settings.qwen_base_url,
-    api_key=settings.dashscope_api_key,
-    temperature=0,  # 重排序需要确定性
-    extra_body={"enable_thinking": False, "enable_context_cache": True}
+# 而主对话用的 qwen3.8-omni-flash 却正常，极难排查。统一走 app/core/llm.py 的档位工厂。
+# 2026-10-09：查询改写是"选择题"（把用户问题扩成 3~5 个检索变体），
+# 不需要跨约束推理，下沉到 light 档（默认 qwen3.7-flash，输入单价比旗舰档便宜 60 倍）。
+model = build_chat_model(
+    "light",
+    temperature=0,  # 改写/重排需要确定性
 )
 
 

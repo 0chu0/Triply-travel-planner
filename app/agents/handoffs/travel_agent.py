@@ -10,7 +10,7 @@ from langchain.agents import create_agent
 from app.config import settings
 from app.core.state import TravelState
 from app.core.checkpointer import get_checkpointer
-from langchain_openai import ChatOpenAI
+from app.core.llm import get_main_llm
 from app.core.middleware import create_step_config_middleware
 from app.tools.state_transition import (
     record_requirement_tool,
@@ -27,20 +27,14 @@ from app.tools.memory_tools import MEMORY_TOOLS
 from app.utils.logger import app_logger
 
 # ============== 初始化 LLM ==============
+# 真正的构造逻辑收敛到 app/core/llm.py：全项目只有一处定义"模型档位 → 模型名"，
+# 避免某处硬编码模型名后、该模型免费额度用尽时全链路 403 却极难排查。
+# 主 Agent 本身用 main 档；每轮实际用哪个档位由 StepConfigMiddleware
+# 按 step_config["model_tier"] 动态 override（见 app/core/middleware.py）。
 
 def get_llm():
-    """获取配置好的千问模型"""
-    return ChatOpenAI(
-        model=settings.qwen_model_name,
-        base_url=settings.qwen_base_url,
-        api_key=settings.dashscope_api_key,
-        temperature=settings.qwen_temperature,
-        max_tokens=settings.qwen_max_tokens,
-        streaming=True,
-        # 主对话关闭思考模式（与子 Agent 一致）：xhigh 推理每轮烧 2k~4k token，
-        # 关闭后思维链归零、历史最干净；同时开上下文缓存，固定系统提示命中折扣。
-        extra_body={"enable_thinking": False, "enable_context_cache": True}
-    )
+    """获取配置好的千问模型（main 档）"""
+    return get_main_llm()
 
 
 # ============== 创建 Agent ==============

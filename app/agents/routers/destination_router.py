@@ -6,7 +6,7 @@ import json
 from typing import TypedDict, Annotated, Literal
 from operator import add
 from pydantic import BaseModel, Field
-from langchain_openai import ChatOpenAI
+from app.core.llm import build_chat_model
 from langchain.agents import create_agent
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
@@ -48,11 +48,8 @@ def classifier_node(state: DestinationRouterState) -> dict:
     """分类器节点"""
     app_logger.info(f"分类器分析查询: {state['original_query']}")
 
-    llm = ChatOpenAI(
-        model=settings.qwen_model_name,
-        base_url=settings.qwen_base_url,
-        api_key=settings.dashscope_api_key
-    )
+    # 分类器是"选择题"（explore / weather 二选一或全选）→ light 档
+    llm = build_chat_model("light")
     structured_llm = llm.with_structured_output(ClassificationResult)
 
     result = structured_llm.invoke([
@@ -102,13 +99,8 @@ def route_to_agents(state: DestinationRouterState) -> list[Send]:
 def _create_explore_agent():
     """创建带 RAG 工具的探索 Agent"""
 
-    llm = ChatOpenAI(
-        model=settings.qwen_model_name,
-        base_url=settings.qwen_base_url,
-        api_key=settings.dashscope_api_key,
-        temperature=0.7,
-        extra_body={"enable_thinking": False, "enable_context_cache": True}
-    )
+    # 探索 Agent = 从知识库检索并抽取攻略片段，属"抽取题" → light 档
+    llm = build_chat_model("light", temperature=0.7)
 
     # 获取 RAG 工具
     rag_tools = get_rag_tools()

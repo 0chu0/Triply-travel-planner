@@ -5,20 +5,19 @@ import os
 from typing import List, Tuple
 from dotenv import load_dotenv
 from langchain_core.documents import Document
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
-from app.config import settings
+from app.core.llm import build_chat_model
 from app.utils.logger import app_logger
 
 load_dotenv()
 
-model = ChatOpenAI(
-    model=settings.qwen_model_name,  # 跟随主模型，消灭 qwen-turbo 独立账
-    base_url=settings.qwen_base_url,
-    api_key=settings.dashscope_api_key,
+# 跟随档位工厂，消灭 qwen-turbo 独立账。
+# 2026-10-09：重排是"选择题"（给候选文档打相关性分），不是创作题，
+# 下沉到 light 档（默认 qwen3.7-flash）后质量基本无损、成本降一个数量级。
+model = build_chat_model(
+    "light",
     temperature=0,  # 重排序需要确定性
-    extra_body={"enable_thinking": False, "enable_context_cache": True}
 )
 
 

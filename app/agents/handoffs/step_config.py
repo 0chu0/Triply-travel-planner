@@ -1,7 +1,15 @@
 
 """
 Handoffs 步骤配置
-定义每个步骤的 Prompt、Tools 和前置依赖
+定义每个步骤的 Prompt、Tools、模型档位和前置依赖
+
+model_tier（2026-10-09 新增）
+----------------------------
+- "main"  = 权衡题：跨约束推理 / 编排 / 计算。错了要返工，返工又是一整轮输入 → 值旗舰价。
+- "light" = 选择题：信息收集、偏好记录、忌口确认、格式化输出。输入输出都短、答案有明确对错。
+
+由 StepConfigMiddleware 在每轮 request.override(model=...) 时按当前步骤切换，
+档位 → 具体模型名的映射只存在于 app/core/llm.py 一处。
 """
 from app.tools.router_query import query_destination_info
 from app.tools.transport_query import query_transport_options
@@ -138,7 +146,15 @@ async def get_step_config():
                 # 阶段 1 的唯一职责是收集需求，给攻略/榜单/航班就是"跑偏"。
                 # 物理上拿不到工具，就只能专注于对话收齐核心信息。
             ],
-            "requires": []  # 无前置依赖
+            "requires": [],  # 无前置依赖
+            # ⚠️ 2026-10-10 实测：这一步曾下沉到 light 档（qwen3.7-flash），结果在
+            # req_weather_gated_in_step1 上【稳定复现（2/2）】一次参数缺失的无效工具调用
+            # （get_weather_forecast 未传 city_adcode → ToolException → 该轮完全没有回复）；
+            # 同一条用例把 light 档换回 qwen3.8-max 即不再报错。
+            # 需求收集是全流程轮次最多、也是唯一"所有会话必经过"的步骤，
+            # 一次空回复的代价远大于省下的 token，故保留 main 档。
+            # 若日后要再试轻档，改这一行为 "light" 并跑 `python scripts/run_eval.py --tier all` 验证。
+            "model_tier": "main"
         },
 
         # ========== 步骤 2：目的地推荐 ==========
@@ -248,7 +264,9 @@ async def get_step_config():
                 update_travel_style_tool,
                 add_travel_record_tool
             ],
-            "requires": ["user_requirement"]
+            "requires": ["user_requirement"],
+            # 季节适宜性 / 预算消费压力 / 风险替代方案 —— 多约束权衡 → main
+            "model_tier": "main"
         },
 
         # ========== 步骤 3：交通规划 ==========
@@ -313,7 +331,9 @@ async def get_step_config():
 """,
             "tools": [select_transport_tool, go_back_to_destination, go_back_to_requirement,
                       query_transport_options, query_destination_info, *weather_tools],
-            "requires": ["user_requirement", "selected_destination"]
+            "requires": ["user_requirement", "selected_destination"],
+            # 时间 / 预算 / 是否中转，多约束冲突最集中的一步 → main
+            "model_tier": "main"
         },
 
         # ========== 步骤 4：住宿规划 ==========
@@ -396,7 +416,9 @@ async def get_step_config():
                 *weather_tools,
                 update_accommodation_preference_tool
             ],
-            "requires": ["user_requirement", "selected_destination", "selected_transport"]
+            "requires": ["user_requirement", "selected_destination", "selected_transport"],
+            # 预算等级 → 星级/区域/房型的换算，涉及取舍 → main
+            "model_tier": "main"
         },
 
         # ========== 步骤 5：餐饮规划 ==========
@@ -467,7 +489,9 @@ async def get_step_config():
                 "selected_destination",
                 "selected_transport",
                 "selected_accommodation_types"
-            ]
+            ],
+            # 忌口确认 + 三种餐饮类型选择：典型选择题 → light
+            "model_tier": "light"
         },
 
         # ========== 步骤 6：行程生成 ==========
@@ -556,7 +580,9 @@ async def get_step_config():
                 "selected_transport",
                 "selected_accommodation_types",
                 "selected_food_types"
-            ]
+            ],
+            # 行程编排：动线 / 节奏 / 强度 / Plan B，旗舰能力的核心兑现点 → main
+            "model_tier": "main"
         },
 
         # ========== 步骤 7：预算汇总 ==========
@@ -615,7 +641,9 @@ async def get_step_config():
                 go_back_to_itinerary,
                 go_back_to_step
             ],
-            "requires": ["user_requirement", "itinerary"]
+            "requires": ["user_requirement", "itinerary"],
+            # 预算拆分与降本方案：要算数、要讲清假设 → main
+            "model_tier": "main"
         },
 
         # ========== 步骤 8：订单生成 ==========
@@ -661,6 +689,8 @@ async def get_step_config():
                 go_back_to_budget,
                 add_travel_record_tool
             ],
-            "requires": ["user_requirement", "itinerary", "budget"]
+            "requires": ["user_requirement", "itinerary", "budget"],
+            # 格式化输出订单号 + 写出行记录 → light
+            "model_tier": "light"
         }
     }

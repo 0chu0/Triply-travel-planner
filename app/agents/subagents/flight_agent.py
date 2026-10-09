@@ -5,8 +5,8 @@
 import asyncio
 import ast
 import re
-from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
+from app.core.llm import build_chat_model
 from langchain_core.tools import StructuredTool
 from app.config import settings
 from app.mcp_core.client import get_mcp_client
@@ -207,13 +207,8 @@ async def _get_aviation_tools():
 async def create_flight_subagent():
     """创建航班查询 Subagent"""
 
-    llm = ChatOpenAI(
-        model=settings.qwen_model_name,
-        base_url=settings.qwen_base_url,
-        api_key=settings.dashscope_api_key,
-        temperature=0.1,
-        extra_body={"enable_thinking": False, "enable_context_cache": True}
-    )
+    # 航班查询 = 城市三字码/日期参数抽取 + 结果整理，属"抽取题" → light 档
+    llm = build_chat_model("light", temperature=0.1)
 
     # 异步获取工具
     aviation_tools = await _get_aviation_tools()
