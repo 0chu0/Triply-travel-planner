@@ -124,8 +124,8 @@
       "category": "边界",
       "tier": "quick",
       "turns": [
-        "我想从北京出发，10月20日去巴黎玩5天，2个大人，预算2万，喜欢文化，就按这个安排",
-        "巴黎天气怎么样"
+      "我想从北京出发，10月20日去巴黎玩5天，2个大人，预算2万，喜欢文化，就按这个安排",
+      "没问题，就按这个安排。另外巴黎天气怎么样？"
       ],
       "expected": {
         "steps_path": ["requirement_collection", "destination_recommendation"],

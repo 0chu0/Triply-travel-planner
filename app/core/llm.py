@@ -36,6 +36,21 @@ from app.config import settings
 MAIN = "main"
 LIGHT = "light"
 
+# 评测进程的全局温度覆盖开关（生产永不设置 → None，行为完全不变）。
+#
+# 为什么必须放在工厂这一层：middleware 每轮都会 request.override(model=get_main_llm())
+# 把模型实例换成工厂产出的新实例，而评测脚本原先只替换 travel_agent.get_llm ——
+# 那个替换会被 middleware 的 override 完全盖掉，导致报告写着 temperature=0、
+# 实际却跑在生产默认的 0.7 上，"可复现"是假的。让工厂认这个开关，
+# 主对话 / 子 Agent / RAG 改写与重排就全部覆盖到了。
+_EVAL_TEMPERATURE: Optional[float] = None
+
+
+def set_eval_temperature(value: Optional[float]) -> None:
+    """设置评测期温度覆盖；传 None 表示不覆盖（与生产逐字一致）。"""
+    global _EVAL_TEMPERATURE
+    _EVAL_TEMPERATURE = value
+
 
 def build_chat_model(
     tier: str = MAIN,
@@ -63,7 +78,11 @@ def build_chat_model(
         model=model_name,
         base_url=settings.qwen_base_url,
         api_key=settings.dashscope_api_key,
-        temperature=settings.qwen_temperature if temperature is None else temperature,
+        temperature=(
+            _EVAL_TEMPERATURE
+            if _EVAL_TEMPERATURE is not None
+            else (settings.qwen_temperature if temperature is None else temperature)
+        ),
         max_tokens=settings.qwen_max_tokens if max_tokens is None else max_tokens,
         streaming=streaming,
         # 关思考：推理 token 按输出价计费，xhigh 每轮额外烧 2k~4k，关掉后思维链归零。

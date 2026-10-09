@@ -95,31 +95,24 @@ async def shutdown_environment() -> None:
 
 def install_temperature_override(temperature: Optional[float]) -> None:
     """
-    在评测进程内把 Agent 用的 LLM 换成指定温度（默认 0，保证可复现）。
+    在评测进程内把全链路 LLM 温度固定到指定值（默认 0，保证可复现）。
 
-    生产 `get_llm()` 写死 temperature=0.7，本函数只在评测脚本里替换模块属性，
-    **不修改 app/ 下任何文件**；不传参则完全不替换（与生产逐字一致）。
+    生产默认 temperature=0.7。本函数只设置 `app.core.llm` 的评测开关，
+    **不改生产行为**（生产不调用本函数，开关恒为 None）。
+    不传参（即 `temperature is None`，对应 `--temperature prod`）则完全不覆盖。
+
+    ⚠️ 旧实现只替换 `travel_agent.get_llm`，会被 middleware 每轮的
+    `request.override(model=get_main_llm())` 盖掉——报告写着 temperature=0、
+    实际却跑在 0.7 上，"可复现"是假的（模型分档改造后尤其明显）。
+    改为走工厂开关后，主对话 / 子 Agent / RAG 改写与重排全部生效。
     """
     if temperature is None:
         return
 
-    import app.agents.handoffs.travel_agent as ta
-    from langchain_openai import ChatOpenAI
-    from app.config import settings
+    import app.core.llm as llm_mod
 
-    def _eval_llm() -> ChatOpenAI:
-        return ChatOpenAI(
-            model=settings.qwen_model_name,
-            base_url=settings.qwen_base_url,
-            api_key=settings.dashscope_api_key,
-            temperature=temperature,
-            max_tokens=settings.qwen_max_tokens,
-            streaming=True,
-            extra_body={"enable_thinking": False, "enable_context_cache": True},
-        )
-
-    ta.get_llm = _eval_llm          # create_travel_agent 内部按模块名查找，替换即生效
-    app_logger.info(f"🔧 评测模式：Agent LLM 温度固定为 {temperature}")
+    llm_mod.set_eval_temperature(temperature)
+    app_logger.info(f"🔧 评测模式：全链路 LLM 温度固定为 {temperature}")
 
 
 # ---------------------------------------------------------------- 单轮驱动
