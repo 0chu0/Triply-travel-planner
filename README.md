@@ -153,19 +153,15 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```ini
 # ===== LLM（阿里云百炼 / DashScope）=====
 DASHSCOPE_API_KEY=sk-xxx
-QWEN_MODEL_NAME=qwen3.8-max              # main 档（权衡题）模型。代码默认值为 qwen3.7-flash（config.py），生产 .env 显式覆盖
+QWEN_MODEL_NAME=qwen3.8-flash            # main 档（权衡题）模型，代码默认值即 qwen3.8-flash（config.py）
                                          # ⚠️ 百炼免费额度【按模型独立】，某一模型耗尽只会让该路径 403（AllocationQuota.FreeTierOnly），
                                          #    不影响其它模型——曾因此出现「RAG 改写链挂了但主对话正常」的诡异现象。
-                                         #    2026-10-09 实测：qwen3.8-flash 与 qwen3.8-omni-flash 免费额度均已耗尽，改用 qwen3.8-max。
+                                         #    2026-10-10 起两档统一为 qwen3.8-flash（此前因额度问题分散在 max / plus）。
                                          #    统一从 .env 读取、禁止在代码里写死模型名（见 app/core/llm.py）。
                                          #    两档均强制 enable_thinking=False + enable_context_cache=True 以省 token。
-QWEN_LIGHT_MODEL_NAME=qwen3.7-plus       # light 档（选择题）模型：查询改写 / 重排 / 意图分类 / 结构化抽取。
-                                         #    **代码默认值是 qwen3.7-flash**（0.2 元/百万，比 max 的 12 元便宜 60 倍），
-                                         #    但 ⚠️ 2026-10-10 该模型免费额度耗尽 → 所有走 light 的环节 403，
-                                         #    生产已切到 qwen3.7-plus（仍有额度）。
-                                         #    选型铁律：**先保证可用，再谈便宜**——没额度的模型再便宜也用不了。
-                                         #    日后面板充值或关闭"仅免费额度"后，可换回 flash 再省一档。
-                                         #    安全阀：把它设成与 QWEN_MODEL_NAME 相同 = 全量回退旗舰档。见 §十六。
+QWEN_LIGHT_MODEL_NAME=qwen3.8-flash      # light 档（选择题）模型：查询改写 / 重排 / 意图分类 / 结构化抽取。
+                                         #    代码默认值同为 qwen3.8-flash（2026-10-10 与 main 档统一）。
+                                         #    安全阀：把它设成与 QWEN_MODEL_NAME 相同 = 全量回退到单一档。见 §十六。
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 QWEN_MAX_TOKENS=2500                   # 单轮最大输出 token（防长回复，配合 GLOBAL_OUTPUT_RULES 的 8 行硬约束）
 
@@ -523,7 +519,7 @@ python scripts/run_eval.py --tier all --baseline latest   # 跑全部并和上�
 于是主对话、子 Agent、RAG 改写与重排**全部覆盖**。
 生产永不调用该开关（恒为 `None`），行为完全不变。
 验证：设置后 `build_chat_model("main"/"light")` 的温度均为 0，且**档位模型名不变**
-（main=`qwen3.8-max`、light=`qwen3.7-plus`）；不设置时回落 0.7。
+（两档均为 `qwen3.8-flash`）；不设置时回落 0.7。
 
 **已解决：首步天气门控命中禁用话术"查不到"**
 
@@ -605,12 +601,15 @@ python scripts/run_eval.py --tier all --baseline latest   # 跑全部并和上�
 **实现**：`app/core/llm.py` 是全项目**唯一**定义"档位 → 模型名"的地方，杜绝某处硬编码模型名后、
 该模型免费额度用尽导致局部 403 却极难排查（历史上真实发生过）。
 
-| 档位 | 环境变量 | 代码默认值 | 生产 `.env` 实际值 | 承担什么活 |
-|---|---|---|---|---|
-| `main`（权衡题） | `QWEN_MODEL_NAME` | `qwen3.7-flash` | **`qwen3.8-max`** | 跨约束推理 / 编排 / 计算 |
-| `light`（选择题） | `QWEN_LIGHT_MODEL_NAME` | `qwen3.7-flash` | **`qwen3.7-plus`**（原为 `qwen3.7-flash`，额度耗尽后切走） | 改写、重排、分类、结构化抽取、格式化、简单问答 |
+| 档位 | 环境变量 | 代码默认值 | 承担什么活 |
+|---|---|---|---|
+| `main`（权衡题） | `QWEN_MODEL_NAME` | `qwen3.8-flash` | 跨约束推理 / 编排 / 计算 |
+| `light`（选择题） | `QWEN_LIGHT_MODEL_NAME` | `qwen3.8-flash` | 改写、重排、分类、结构化抽取、格式化、简单问答 |
 
-> ⚠️ **代码默认值 ≠ 生产值**，且生产值会被额度状况推着走。百炼免费额度**按模型独立**，
+> 2026-10-10 起两档**统一为 `qwen3.8-flash`**（等价于安全阀常开：单一模型跑全链路）。
+> 分档机制保留，需要重新拉开档位时只改 `.env` 两个变量即可，不动代码。
+>
+> ⚠️ **代码默认值可被 `.env` 覆盖，而生产值会被额度状况推着走**。百炼免费额度**按模型独立**，
 > 某个模型额度耗尽只让走它的那档 403，另一档照常——这是本项目最难排查的故障模式之一。
 > 排查口诀：**先看是哪一档在报错，再查那一档模型的额度**，不要一上来就怀疑代码。
 
@@ -659,18 +658,18 @@ python scripts/run_eval.py --tier all --baseline latest   # 跑全部并和上�
 | qwen3.8-max | 12 | 1.5 | 36 |
 | qwen3.8-flash | 0.8（限时 5 折，原价 1.6） | 0.1 | 2.7（原价 5.4） |
 | qwen3.7-flash | 0.2 | 0.04 | 0.8 |
-| qwen3.7-plus（生产 light 现用） | 高于 flash、低于 max（未核对） | — | — |
+| qwen3.7-plus | 高于 flash、低于 max（未核对） | — | — |
 
 > 思考 token 按输出价计费，所以两档都强制 `enable_thinking=False`。
 >
 > ⚠️ **单价不是唯一约束，额度才是**。百炼免费额度**按模型独立**，模型一旦额度耗尽就是 403，
 > 单价再便宜也用不了。2026-10-09 `qwen3.8-flash`/`qwen3.8-omni-flash` 耗尽 → main 切 `qwen3.8-max`；
-> 2026-10-10 `qwen3.7-flash` 耗尽 → light 切 `qwen3.7-plus`。
-> 代价是**端到端耗时从 44s/用例涨到 68s/用例**（plus 比 flash 慢）。
-> 长期方案是在控制台充值或关闭"仅免费额度"，届时 light 可换回 flash。
+> 2026-10-10 `qwen3.7-flash` 耗尽 → light 切 `qwen3.7-plus`（代价：端到端 44s → 68s/用例）。
+> 2026-10-10 晚：额度问题解决后**两档统一回 `qwen3.8-flash`**（代码默认值亦同步改掉），
+> 既省单价又恢复速度；若该模型再次 403，唯一动作就是改 `.env` 两个变量换档。
 
-**安全阀**：把 `QWEN_LIGHT_MODEL_NAME` 设成与 `QWEN_MODEL_NAME` 同一个模型（例如都写 `qwen3.8-max`），
-等价于"全量回退到旗舰档"，**不需要改任何代码**。
+**安全阀**：把 `QWEN_LIGHT_MODEL_NAME` 设成与 `QWEN_MODEL_NAME` 同一个模型（当前两档都已写 `qwen3.8-flash`），
+等价于"全量回退到单一档"，**不需要改任何代码**。
 
 ### 上下文缓存：实测命中多少 —— 和 Redis 无关
 

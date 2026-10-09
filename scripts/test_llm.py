@@ -1,6 +1,6 @@
 """
 测试千问 LLM 连接
-使用 OpenAI 兼容端点（与 app/config.py 一致），支持新版模型如 qwen3.7-flash
+使用 OpenAI 兼容端点（与 app/config.py 一致），支持新版模型如 qwen3.8-flash
 """
 import os
 import sys
@@ -30,7 +30,7 @@ def test_qwen_connection():
             "QWEN_BASE_URL",
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
         )
-        model_name = os.getenv("QWEN_MODEL_NAME", "qwen3.7-flash")
+        model_name = os.getenv("QWEN_MODEL_NAME", "qwen3.8-flash")
 
         # 初始化模型：OpenAI 兼容端点，支持新版 qwen 模型，temperature 也能生效
         model = ChatOpenAI(

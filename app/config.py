@@ -32,12 +32,11 @@ class Settings(BaseSettings):
 
     # ============== LLM 配置 ==============
     dashscope_api_key: str = Field(alias="DASHSCOPE_API_KEY")
-    qwen_model_name: str = Field(default="qwen3.7-flash", alias="QWEN_MODEL_NAME")
+    # 2026-10-10 统一：main / light 两档默认都是 qwen3.8-flash（如需换档，在 .env 显式指定即可）
+    qwen_model_name: str = Field(default="qwen3.8-flash", alias="QWEN_MODEL_NAME")
     # 轻量档模型：只干"选择题"（查询改写、重排、分类、结构化抽取、格式化、简单问答）。
-    # 2026-10-09 成本画像：qwen3.8-max 输入 12 元/百万 tokens，qwen3.7-flash 仅 0.2 元
-    # （差 60 倍），而这些环节输入输出都很短、答案有明确对错，旗舰档带来的边际收益≈0。
-    # 安全阀：把这里设成与 QWEN_MODEL_NAME 相同（如 qwen3.8-max）= 全量回退到旗舰档，无需改代码。
-    qwen_light_model_name: str = Field(default="qwen3.7-flash", alias="QWEN_LIGHT_MODEL_NAME")
+    # 安全阀：把这里设成与 QWEN_MODEL_NAME 相同 = 全量回退到单一档，无需改代码。
+    qwen_light_model_name: str = Field(default="qwen3.8-flash", alias="QWEN_LIGHT_MODEL_NAME")
     qwen_base_url: str = Field(
         default="https://dashscope.aliyuncs.com/compatible-mode/v1",
         alias="QWEN_BASE_URL"
