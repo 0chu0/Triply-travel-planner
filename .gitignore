@@ -20,6 +20,9 @@ update.tar.gz
 _probe_*
 _probe_out.txt
 
+# 评测运行产物（每次 run 的结果文件，只本地留档；CLI 与数据集本身要入库）
+scripts/eval_out/
+
 # SSH / TLS keys — 绝不入库（曾误在仓库根目录生成过密钥对）
 *.pem
 *.key

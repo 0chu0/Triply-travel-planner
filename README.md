@@ -26,7 +26,7 @@
 | 语言 / 框架 | Python 3.13, FastAPI, LangGraph, LangChain |
 | 大模型 | 阿里云百炼 Qwen（DashScope 兼容 OpenAI 接口） |
 | 存储 | PostgreSQL（16+，生产为 17）+ pgvector，Chroma（本地向量库） |
-| 可观测 | Langfuse（链路追踪 Tracing；评测未接入） |
+| 可观测 | Langfuse（链路追踪 Tracing）；本地评测 CLI（`scripts/run_eval.py`，规则型 Golden Case 回归） |
 | 部署 | Docker Compose，阿里云轻量应用服务器 |
 
 ## 三、目录结构
@@ -87,7 +87,10 @@ travel-planner/
 ├── scripts/                      # 运维脚本
 │   ├── init_db.py                # 初始化数据库表（create_all）
 │   ├── ingest.py                 # 知识库一键重建（重建 Chroma 向量索引）
-│   └── test_llm.py               # LLM 连通性自测 + Langfuse 追踪冒烟
+│   ├── test_llm.py               # LLM 连通性自测 + Langfuse 追踪冒烟
+│   ├── run_eval.py               # 评测 CLI（本地跑一遍 Golden Case，判断「改动有没有把别处改坏」）
+│   ├── eval_lib/                 # 评测库：dataset / collector / metrics / report（纯规则，不调模型）
+│   └── eval_data/core_v1.json    # Golden Case 数据集（12 条，覆盖 8 个规划步骤 + 边界）
 ├── docs/                         # 文档（架构核查报告 / 修订记录 / 配额申请说明）
 ├── docker-compose.yml            # 本地/服务器部署编排
 ├── Dockerfile                    # 后端镜像
@@ -150,7 +153,12 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```ini
 # ===== LLM（阿里云百炼 / DashScope）=====
 DASHSCOPE_API_KEY=sk-xxx
-QWEN_MODEL_NAME=qwen3.8-omni-flash     # 主对话模型（推理模型，思考链也计费；已在主对话代码中关闭思考模式 + 开启上下文缓存以省 token）。注意：代码默认值为 qwen3.7-flash（config.py:35），如需 3.8 必须在 .env 显式指定
+QWEN_MODEL_NAME=qwen3.8-max              # 主对话模型。代码默认值为 qwen3.7-flash（config.py:35），生产 .env 显式覆盖
+                                         # ⚠️ 百炼免费额度【按模型独立】，某一模型耗尽只会让该路径 403（AllocationQuota.FreeTierOnly），
+                                         #    不影响其它模型——曾因此出现「RAG 改写链挂了但主对话正常」的诡异现象。
+                                         #    2026-10-09 实测：qwen3.8-flash 与 qwen3.8-omni-flash 免费额度均已耗尽，改用 qwen3.8-max。
+                                         #    统一从 .env 读取、禁止在代码里写死模型名（见 app/rag/query_optimizer.py 注释）。
+                                         #    主对话强制 enable_thinking=False + enable_context_cache=True 以省 token。
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 QWEN_MAX_TOKENS=2500                   # 单轮最大输出 token（防长回复，配合 GLOBAL_OUTPUT_RULES 的 8 行硬约束）
 
@@ -383,6 +391,37 @@ python scripts/test_llm.py     # 打印「📊 Langfuse 追踪已启用」且控
 时间戳相同即说明它们来自同一次请求，不是重复上报。若需按 `conversation_id` 归组成一条 trace，
 需要给 handler 配置 `session_id`（尚未实施）。
 
-## 十五、许可证
+## 十五、评测（本地回归）
+
+定位：**改完 prompt / 步骤配置 / 模型后，回答"这次改动有没有把别的地方改坏"**。
+刻意做成**本地 CLI 工具**，不建库表、不做管理后台、不进生产链路——取舍理由见 `docs/评测功能落地方案_v1.6.md`。
+
+| 组成 | 位置 | 说明 |
+|---|---|---|
+| 数据集 | `scripts/eval_data/core_v1.json` | 12 条 Golden Case（`quick` 8 条 / `deep` 4 条），分档位可选用例，含 `expected` 断言 |
+| 采集器 | `scripts/eval_lib/collector.py` | 直接复用 `app.api.v1.chat.is_answer_stream_event` 判据驱动 Agent，**采集口径与线上一致** |
+| 指标 | `scripts/eval_lib/metrics.py` | 全部为**规则型确定性指标**，零模型调用、可复现（见下表） |
+| 报告 | `scripts/eval_lib/report.py` | 落 `scripts/eval_out/{run_id}.json\|.md` + `latest.*`，未入库、已 gitignore |
+
+**指标**：门禁类 `answer_non_empty` / `format_clean`（禁 Markdown + 单轮正文 ≤8 行）/ `forbidden_phrase_clean` / `tools_forbidden_clean`；
+核心类 `step_path_score`（LCS 归一化）/ `tool_recall` / `tools_any_hit` / `final_step_match` / `requirement_fill_rate` / `subgraph_leak`；
+观察类 `latency_ms` / `total_tokens` / `tool_error_rate` / `turns_used`。
+
+```bash
+python scripts/run_eval.py --validate        # 只校验数据集（秒级，改完数据集先跑这个）
+python scripts/run_eval.py --list            # 列出用例
+python scripts/run_eval.py                   # 跑 quick 档（8 条）
+python scripts/run_eval.py --tier all --baseline latest   # 跑全部并和上一次对比（判断是否变差）
+```
+
+> 评测进程会把当前虚拟环境的 bin 目录前置到 `PATH`（`run_eval.py` 内），否则自建 stdio MCP 子进程
+> 会用到系统 python、导致 weather / search 服务加载失败——**这是评测进程内的局部处理，不动生产代码**。
+> 运行时 `temperature=0`（生产为 0.7），报告中已标注该差异；`--temperature prod` 可与生产逐字一致。
+
+**评测已发现的生产缺陷（待修）**：目的地 Router 的 `explore` 子 Agent 也是 `create_agent` 图、节点名同为
+`model`，其内部攻略流式输出会**穿透 `chat.py` 的正文白名单**混进用户可见正文（指标 `subgraph_leak` 可稳定复现）。
+根因是 `app/agents/routers/destination_router.py` 中 `_explore_agent.ainvoke(...)` 未透传 `config`。
+
+## 十六、许可证
 
 自己学习，许可证另行约定。
