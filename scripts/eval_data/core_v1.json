@@ -1,0 +1,245 @@
+{
+  "name": "core_v1",
+  "version": "1.0",
+  "description": "Triply 核心回归集：覆盖 8 个步骤与 3 个边界（高铁/海外天气/回退）。quick 档 8 条可快速跑完，deep 档 4 条需多轮推进。",
+  "_schema": {
+    "id": "唯一标识，同时会拼进 thread_id（eval-{run_id}-{id}）",
+    "tier": "quick=短程（1-3 轮，快速回归）｜deep=需要推进多步（4-6 轮，慢）",
+    "turns": "用户话术序列，按顺序逐轮灌入 Agent（= 脚本化用户，保证可复现）",
+    "expected": {
+      "steps_path": "期望经过的步骤序列（由状态转移工具的调用顺序推断，LCS 相似度 ≥0.8 通过）",
+      "final_step": "期望终态步骤（从图状态 current_step 读取）",
+      "tools_expected": "期望【全部】被调用的工具名",
+      "tools_expected_any": "期望【至少一个】被调用的工具名（工具可能由多个等价实现时用这个）",
+      "tools_forbidden": "明确不该被调用的工具名（门禁）",
+      "requirement_fields": "期望被填写的 user_requirement 字段（填写率 ≥0.8 通过）",
+      "must_contain_any": "正文应包含的关键词（任一命中即可）",
+      "must_not_contain": "禁用话术（出现即门禁不过）",
+      "long_output_allowed": "是否豁免「单轮正文 ≤8 行」约束，默认 false"
+    },
+    "external_dependent": "该用例是否强依赖外部实时数据（高德/航班/酒店/搜索）"
+  },
+  "cases": [
+    {
+      "id": "req_collect_no_dump",
+      "title": "模糊需求不直接给攻略",
+      "category": "需求收集",
+      "tier": "quick",
+      "turns": ["我想去西安玩几天，有什么建议吗"],
+      "expected": {
+        "steps_path": ["requirement_collection"],
+        "final_step": "requirement_collection",
+        "tools_forbidden": ["get_weather_forecast", "query_transport_options"],
+        "must_not_contain": ["没有接入", "查不到", "做不了"]
+      },
+      "tags": ["步骤门控", "首步职责"],
+      "external_dependent": false,
+      "note": "首步唯一职责是收需求：信息不全时不得给攻略、不得调天气/机票工具（step_config 里物理上也没挂这些工具）"
+    },
+    {
+      "id": "req_relative_date_uses_date_tool",
+      "title": "相对日期必须查真实日期",
+      "category": "需求收集",
+      "tier": "quick",
+      "turns": ["下周末想去杭州玩3天，两个人，预算5000"],
+      "expected": {
+        "steps_path": ["requirement_collection"],
+        "final_step": "requirement_collection",
+        "tools_expected": ["get_today_date"]
+      },
+      "tags": ["日期工具"],
+      "external_dependent": false,
+      "note": "「下周末」是相对时间，prompt 强制先取真实日期再换算；这条同时保护 v1.5 把日期能力迁到本地工具后的回归。实测（2026-10-09）模型仅反问、未调用日期工具 —— 属真实遵从性缺陷，保留该断言作为回归信号。"
+    },
+    {
+      "id": "req_full_info_advances",
+      "title": "信息齐全后主动推进流程",
+      "category": "需求收集",
+      "tier": "quick",
+      "turns": [
+        "从北京出发，10月20日去西安玩3天，2个大人，预算每人4000元，喜欢文化和美食",
+        "可以，就按这个安排"
+      ],
+      "expected": {
+        "steps_path": ["requirement_collection", "destination_recommendation"],
+        "tools_expected": ["record_requirement_tool"],
+        "requirement_fields": ["departure_city", "departure_date", "travel_days", "adult_count"]
+      },
+      "tags": ["状态转移", "防卡死"],
+      "external_dependent": false,
+      "note": "5 项核心信息齐全 + 用户认可 → 必须调 record_requirement_tool 推进。不断言终态步骤：模型一次推进多步（record + select_destination）属更高效行为，不应判错。"
+    },
+    {
+      "id": "req_weather_gated_in_step1",
+      "title": "首步天气门控（设计行为回归）",
+      "category": "需求收集",
+      "tier": "quick",
+      "turns": ["北京今天天气怎么样"],
+      "expected": {
+        "steps_path": ["requirement_collection"],
+        "final_step": "requirement_collection",
+        "tools_forbidden": ["get_weather_forecast"],
+        "must_not_contain": ["没有接入", "查不到", "做不了"]
+      },
+      "tags": ["步骤门控", "设计决策"],
+      "external_dependent": false,
+      "note": "首步刻意不挂 weather 工具（step_config 注释写明），模型应礼貌承诺后续再查并继续收需求；不得否认已接入能力"
+    },
+    {
+      "id": "format_no_markdown",
+      "title": "输出格式合规（无 Markdown + 行数约束）",
+      "category": "输出规范",
+      "tier": "quick",
+      "turns": ["简单说一下去西安要注意什么"],
+      "expected": {
+        "steps_path": ["requirement_collection"]
+      },
+      "tags": ["格式", "GLOBAL_OUTPUT_RULES"],
+      "external_dependent": false,
+      "note": "前端不渲染 Markdown，正文禁 ** / ## / 反引号 / 行首 * 当列表符，且单轮 ≤8 行"
+    },
+    {
+      "id": "dest_weather_shown",
+      "title": "目的地推荐必须展示实时天气",
+      "category": "目的地推荐",
+      "tier": "quick",
+      "turns": [
+        "从北京出发，10月20日去西安玩3天，2个大人，预算每人4000元，喜欢文化",
+        "可以，就按这个安排",
+        "先去西安，帮我看看天气"
+      ],
+      "expected": {
+        "steps_path": ["requirement_collection", "destination_recommendation"],
+        "tools_expected_any": ["query_destination_info", "get_weather_forecast"],
+        "must_contain_any": ["天气"],
+        "must_not_contain": ["没有接入", "查不到"]
+      },
+      "tags": ["天气", "能力边界"],
+      "external_dependent": true,
+      "note": "目的地步骤必须给出真实天气（高德），不得用「没接入/查不到」搪塞"
+    },
+    {
+      "id": "dest_overseas_no_fabricate",
+      "title": "海外城市天气：不编造、不否认能力",
+      "category": "边界",
+      "tier": "quick",
+      "turns": [
+        "我想从北京出发，10月20日去巴黎玩5天，2个大人，预算2万，喜欢文化，就按这个安排",
+        "巴黎天气怎么样"
+      ],
+      "expected": {
+        "steps_path": ["requirement_collection", "destination_recommendation"],
+        "tools_expected_any": ["query_destination_info"],
+        "must_not_contain": ["没有接入", "查不到", "做不了"]
+      },
+      "tags": ["海外", "合规", "防编造"],
+      "external_dependent": true,
+      "note": "高德天气只覆盖中国境内：应如实说明覆盖不到并建议自行确认，不得编造温度，也不得以此否认整体能力（GLOBAL_OUTPUT_RULES 有明确例外条款）。需先推进到目的地步骤，天气工具才可用。"
+    },
+    {
+      "id": "memory_pref_saved",
+      "title": "饮食禁忌要写进长期记忆",
+      "category": "记忆",
+      "tier": "quick",
+      "turns": ["我对海鲜过敏，另外我想去西安玩3天，从北京出发，2个大人，预算5000元"],
+      "expected": {
+        "steps_path": ["requirement_collection"],
+        "tools_expected_any": ["update_dietary_restriction_tool"]
+      },
+      "tags": ["长期记忆", "工具调用"],
+      "external_dependent": false,
+      "note": "prompt 要求用户提到禁忌时必须立刻调用记忆工具保存；写进的是评测专用用户的命名空间"
+    },
+
+    {
+      "id": "transport_rail_12306",
+      "title": "高铁边界：记录推进但不承诺查车次",
+      "category": "交通规划",
+      "tier": "deep",
+      "turns": [
+        "从北京出发，10月20日去西安玩3天，2个大人，预算每人4000元，喜欢文化",
+        "可以，就按这个安排",
+        "就去西安吧",
+        "我打算坐高铁去"
+      ],
+      "expected": {
+        "steps_path": ["requirement_collection", "destination_recommendation", "transport_planning"],
+        "tools_expected": ["select_transport_tool"],
+        "must_contain_any": ["12306"],
+        "must_not_contain": ["帮你查车次", "查高铁票", "查火车票", "查车次"]
+      },
+      "tags": ["边界", "能力边界", "rail"],
+      "external_dependent": false,
+      "note": "本项目不含车次查询能力：用户提高铁 → 必须调 select_transport_tool(rail) 推进并告知在 12306 自行购票，严禁承诺代查"
+    },
+    {
+      "id": "rollback_to_destination",
+      "title": "回退：用户改主意要换目的地",
+      "category": "回退",
+      "tier": "deep",
+      "turns": [
+        "从北京出发，10月20日去西安玩3天，2个大人，预算每人4000元，喜欢文化",
+        "可以，就按这个安排",
+        "就去西安吧",
+        "算了，我想换个目的地看看"
+      ],
+      "expected": {
+        "steps_path": ["requirement_collection", "destination_recommendation"],
+        "tools_expected_any": ["go_back_to_destination"]
+      },
+      "tags": ["回退", "状态机"],
+      "external_dependent": true,
+      "note": "回退工具是状态机正确性的关键：用户明确要换目的地时必须回到目的地推荐，而不是继续往下推"
+    },
+    {
+      "id": "itinerary_daily_structure",
+      "title": "行程生成：走到行程步骤并生成按天结构",
+      "category": "行程生成",
+      "tier": "deep",
+      "turns": [
+        "从北京出发，10月20日去西安玩3天，2个大人，预算每人4000元，喜欢文化",
+        "可以，就按这个安排",
+        "就去西安吧",
+        "坐飞机吧",
+        "住市中心，性价比高的就行",
+        "吃的随便，本地特色就行"
+      ],
+      "expected": {
+        "steps_path": [
+          "requirement_collection",
+          "destination_recommendation",
+          "transport_planning",
+          "accommodation_planning",
+          "food_planning",
+          "itinerary_generation"
+        ],
+        "tools_expected_any": ["generate_itinerary_tool"]
+      },
+      "tags": ["多轮推进", "端到端"],
+      "external_dependent": true,
+      "note": "端到端链路用例：任一环节卡住都会在这里暴露（这是最有价值也最耗时的一条）"
+    },
+    {
+      "id": "budget_scope_disclosure",
+      "title": "预算汇总：必须说清是否含往返大交通",
+      "category": "预算汇总",
+      "tier": "deep",
+      "turns": [
+        "从北京出发，10月20日去西安玩3天，2个大人，预算每人4000元，喜欢文化",
+        "可以，就按这个安排",
+        "就去西安吧",
+        "坐飞机吧",
+        "住市中心，性价比高的就行",
+        "吃的随便，本地特色就行，然后帮我算一下预算"
+      ],
+      "expected": {
+        "tools_expected_any": ["summarize_budget_tool"],
+        "must_contain_any": ["大交通", "机票"],
+        "must_not_contain": ["没有接入", "查不到"]
+      },
+      "tags": ["预算", "口径透明"],
+      "external_dependent": true,
+      "note": "预算口径必须透明：prompt 明确要求标注是否包含往返大交通（机票/火车票）"
+    }
+  ]
+}
