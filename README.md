@@ -390,10 +390,31 @@ python scripts/test_llm.py     # 打印「📊 Langfuse 追踪已启用」且控
 # 2) 线上：发一条真实对话后，到 Langfuse 控制台 Tracing 页刷新，应新增记录
 ```
 
-**已知限制**：同一轮对话会在 Langfuse 里平铺成**多条并列记录**（1 条 `LangGraph` CHAIN + 若干条
-`ChatOpenAI` / `model` GENERATION），因为 LangGraph 子图/节点级 LLM run 的父子链路未完整挂载。
-时间戳相同即说明它们来自同一次请求，不是重复上报。若需按 `conversation_id` 归组成一条 trace，
-需要给 handler 配置 `session_id`（尚未实施）。
+**怎么读一条 trace**（控制台 Tracing 列表 → 点进任意一条）
+
+trace 是一棵**调用树**，每一层回答不同的问题：
+
+| 层级 | 看什么 | 能回答什么 |
+|---|---|---|
+| `LangGraph`（根 span） | `thread_id`、总耗时 | 一次用户提问 = 一条 trace；`thread_id` 即会话标识 |
+| `model` / `tools`（CHAIN） | 分支结构 | 这一轮是"在想"还是在"调工具" |
+| `ChatOpenAI`（GENERATION） | `ls_model_name`、耗时 / 首字延迟 | **用哪个模型、花了多久、真实花钱的地方** |
+| 具体工具（TOOL，如 `searchHotels`） | 耗时、入参、返回 | 外部 API 调用是否成为瓶颈 |
+
+> 实测：模型调用首字延迟 0.6~1.2s，而 `searchHotels` 单次 5.5~7.9s —— **端到端延迟的大头
+> 在外部 API，不在模型**。想"增效"应先优化工具调用，而不是换更快的模型。
+
+**已知限制**
+
+1. 同一轮对话会平铺成**多条并列记录**（1 条 `LangGraph` CHAIN + 若干条 `ChatOpenAI` / `model`
+   GENERATION），因为 LangGraph 子图/节点级 LLM run 的父子链路未完整挂载。
+   时间戳相同即说明它们来自同一次请求，不是重复上报。若需按 `conversation_id` 归组成一条 trace，
+   需要给 handler 配置 `session_id`（尚未实施）。
+2. ⚠️ **Usage / Cost 列目前恒为空**（2026-10-10 用 SDK 直接确认：trace 级与 GENERATION 级的
+   `usage`、`usage_details` 均为 `None`）。**不是模型没返回**——实测 `usage_metadata` 里
+   `input_tokens` / `output_tokens` / `cache_read` 都有值，是上报链路没接住（Langfuse 4.x 走
+   OTel handler，疑似未把 `usage_metadata` 映射到 span 属性）。
+   因此**缓存命中率暂时看不了 Langfuse**，改用 `python scripts/probe_cache.py` 直接读（见 §十六）。
 
 ## 十五、评测（本地回归）
 
@@ -451,9 +472,33 @@ python scripts/run_eval.py --tier all --baseline latest   # 跑全部并和上�
 > 会用到系统 python、导致 weather / search 服务加载失败——**这是评测进程内的局部处理，不动生产代码**。
 > 运行时 `temperature=0`（生产为 0.7），报告中已标注该差异；`--temperature prod` 可与生产逐字一致。
 
-**评测已发现的生产缺陷（待修）**：目的地 Router 的 `explore` 子 Agent 也是 `create_agent` 图、节点名同为
-`model`，其内部攻略流式输出会**穿透 `chat.py` 的正文白名单**混进用户可见正文（指标 `subgraph_leak` 可稳定复现）。
-根因是 `app/agents/routers/destination_router.py` 中 `_explore_agent.ainvoke(...)` 未透传 `config`。
+**评测抓到并已修复的生产缺陷**（2026-10-10）：目的地 Router 的 `explore` 子 Agent 也是 `create_agent` 图、
+节点名同为 `model`，其内部攻略（带 `###` / `*` 的景点清单）会**穿透 `chat.py` 的正文白名单**混进用户可见正文，
+单条用例最多混入 **633 条**子图片段；这些文本还会作为 assistant 消息**写进数据库**，下一轮又被当历史重放，
+既污染体验也推高输入成本。
+
+- **根因**：`destination_router.py` 的 `_explore_agent.ainvoke(...)` 未透传 `config`，子图流式事件一路冒泡到
+  外层 `astream_events`；而白名单当时只看 `langgraph_node`，子图节点名恰好也是 `model`，于是被误判放行。
+- **修复**：`chat.py::is_answer_stream_event` 增加**命名空间层级判据**。主图 `checkpoint_ns` 只有一层
+  （`model:63d0…`），子图是多层（`tools:…|explore:…|model:…`）——**含 `|` 即为子图，不予放行**。
+- 没有选择"给子图传 config 切断冒泡"那条路：它依赖 LangChain 的 callback 传播细节，需反复试错；
+  而改白名单只需 3 行、且评测复用同一函数（改完跑一遍即可验证）。误杀风险由已有的
+  `recover_final_answer` 兜底覆盖。
+- **验证**（`--tier all`，与修复前同数据集对比）：
+
+  | 指标 | 修复前 | 修复后 |
+  |---|---|---|
+  | `subgraph_leak` | 0.667 | **1.0** |
+  | `format_clean` | 0.583 | **1.0** |
+  | 平均 `total_tokens` / 用例 | 54,716 | **37,505**（−31%） |
+  | 平均 `latency_ms` / 用例 | 48,304 | **31,226**（−35%） |
+
+  token 与耗时同步下降，正是因为那些内部攻略不再被塞进正文、也就不会再写进历史被反复重放。
+- 这也是评测最有价值的一次产出：**人肉聊几句话根本发现不了**。
+
+**当前遗留失败（基线即有，非本次引入）**：`req_weather_gated_in_step1` 会命中禁用话术"查不到"——
+首步按设计不提供天气工具，模型只能如实说"暂时查不到"，与"不得否认已接入能力"这条规则直接冲突。
+属于**用例设计与产品设计的冲突**，需要产品侧先定夺（首步是否放开天气工具，或该话术是否豁免）。
 
 ## 十六、模型分档与成本（降本）
 
@@ -481,14 +526,19 @@ python scripts/run_eval.py --tier all --baseline latest   # 跑全部并和上�
 | 餐饮规划 | light | 忌口确认 + 三种餐饮类型选择 |
 | 行程生成 | main | 动线 / 节奏 / 强度 / Plan B，旗舰能力的核心兑现点 |
 | 预算汇总 | main | 要算数、要讲清假设与波动项 |
-| 订单生成 | light | 格式化输出订单号 + 写出行记录 |
+| 订单生成 | main ⚠️ | 见下方说明：曾判为 light，**已回退** |
 
-> ⚠️ **需求收集为什么回退到 main**：它是最像"简单问答"的一步，最初按"选择题"下沉到了
-> `qwen3.7-flash`，但评测 `req_weather_gated_in_step1` **稳定复现（2/2）**一次参数缺失的无效工具调用
-> （`get_weather_forecast` 未传 `city_adcode` → `ToolException` → 该轮完全没有回复）；
-> 把 light 档换回 `qwen3.8-max` 后同一条用例不再报错。需求收集是**所有会话必经过**的步骤，
-> 一次空回复的代价远大于省下的 token，因此保留 main 档。想再试轻档只需改这一行并跑全量评测。
-> 这也说明一件事：**"哪个环节该降级"不能靠直觉，必须跑评测**。
+> ⚠️ **两次"降级翻车"的教训 —— 哪个环节能降级不能靠直觉，必须跑评测**
+>
+> 1. **需求收集**：它是最像"简单问答"的一步，最初按"选择题"下沉到了 `qwen3.7-flash`，但评测
+>    `req_weather_gated_in_step1` **稳定复现（2/2）**一次参数缺失的无效工具调用
+>    （`get_weather_forecast` 未传 `city_adcode` → `ToolException` → 该轮完全没有回复）；
+>    换回 `qwen3.8-max` 后同一条用例不再报错。它是**所有会话必经过**的步骤，一次空回复的代价
+>    远大于省下的 token。
+> 2. **订单生成**：当初判它是"格式化输出订单号 + 写出行记录"就给了 light，判轻了。Langfuse 生产
+>    trace 显示这一步实际输出的是**最终交付给用户的整份行程 + 预算汇总**（实测 11 行正文），
+>    是用户整段对话看到的最后一屏，不是内部格式化工序。用最便宜的档收尾，省不下多少 token，
+>    却押上了最终观感。2026-10-10 回退为 main。
 
 **链路上的固定分工**（非主对话）
 
@@ -515,25 +565,37 @@ python scripts/run_eval.py --tier all --baseline latest   # 跑全部并和上�
 **安全阀**：把 `QWEN_LIGHT_MODEL_NAME` 设成与 `QWEN_MODEL_NAME` 同一个模型（例如都写 `qwen3.8-max`），
 等价于"全量回退到旗舰档"，**不需要改任何代码**。
 
-### 「未开缓存 / 缓存命中 60%」是什么 —— 和 Redis 无关
+### 上下文缓存：实测命中多少 —— 和 Redis 无关
 
-成本估算里那两个柱子指的是**百炼（模型服务商）侧的上下文缓存 Context Cache**，
+这里说的是**百炼（模型服务商）侧的上下文缓存 Context Cache**，是服务端的前缀 KV 缓存；
 不是本项目的应用层缓存，也**不需要 Redis**（本项目确认未使用 Redis，见 §二）。
 
-- **未开缓存**：每轮请求的输入 token 全部按原价计费（如 max 的 12 元 / 百万）。
-- **缓存命中 60%**：假设每轮输入里有 60% 是**前缀未变**的内容（系统提示 + 全局输出规范
-  + 工具 schema + 历史前段），被服务端缓存命中后按"缓存命中价"（1.5 元 / 百万，约原价 12.5%）
-  计费；剩下 40% 是本轮新增的用户输入与工具返回，仍按原价。
+- **未命中（原价）**：输入 token 按原价计费（如 max 的 12 元 / 百万）。
+- **命中（约 1.25 折）**：前缀未变的部分按"缓存命中价"计费（max 为 1.5 元 / 百万）。
 
-我们通过在 `app/core/llm.py` 里传 `extra_body={"enable_context_cache": True}` 开启它。
+我们在 `app/core/llm.py` 里传 `extra_body={"enable_context_cache": True}` 开启它。
 
-⚠️ 两点要注意：
+**实测数据**（2026-10-10，`python scripts/probe_cache.py`，读 `usage_metadata.input_token_details.cache_read`）
 
-1. **60% 是假设值，不是实测值**。真实命中率可以从 Langfuse trace 的 usage 明细里读
-   （`cached_tokens` / `cache_read_input_tokens` vs `input_tokens`）。
-2. 这个开关只表示"允许命中"，**命中率取决于前缀是否稳定**。目前中间件每轮
-   `request.override(tools=...)` 会按步骤换工具集，工具 schema 一旦变化就会打断前缀、
-   拉低命中率——这是下一步值得查的优化点。
+| 场景 | 输入 tokens | `cache_read` | 命中率 |
+|---|---|---|---|
+| 短前缀，重复调用 | 981 | 0 | **0%** |
+| 长前缀，首次调用 | 3261 | 0 | **0%** |
+| 长前缀，第 2 次起 | 3261 | 3072 | **94.2%** |
+
+三点结论：
+
+1. **缓存确实生效**，且前缀稳定时命中率可达 **94%**，远高于早期估算里假设的 60%。
+2. **存在最小可缓存粒度门槛**：3072 = 1024 × 3，说明按 1024 tokens 分块，不足 1024 的
+   前缀**永远不会命中**（短前缀那一行为 0 就是这个原因，不是缓存没开）。
+   3261 − 3072 = 189 的尾巴对不齐块，所以是 94.2% 而不是 100%。
+3. **真实链路的命中率会低于 94%**。开关只表示"允许命中"，实际命中取决于前缀是否稳定；
+   目前中间件每轮 `request.override(tools=...)` 会按步骤换工具集，schema 一变就打断前缀。
+   **量化这个损失是下一步最值得做的降本调研**。
+
+> 探针脚本 `scripts/probe_cache.py` 会分别用短前缀 / 长前缀、非流式 / 流式各调若干次并打印
+> `cache_read`。之所以需要它，是因为 **Langfuse 当前上报不到 usage**（详见 §十四），
+> 控制台上看不到这个数。
 
 ## 十七、许可证
 

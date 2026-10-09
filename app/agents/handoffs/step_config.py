@@ -690,7 +690,12 @@ async def get_step_config():
                 add_travel_record_tool
             ],
             "requires": ["user_requirement", "itinerary", "budget"],
-            # 格式化输出订单号 + 写出行记录 → light
-            "model_tier": "light"
+            # ⚠️ 2026-10-10 由 light 改回 main。
+            # 当初判它是"格式化输出订单号"，判轻了：Langfuse 生产 trace 显示这一步
+            # 实际输出的是【最终交付给用户的整份行程 + 预算汇总】（实测 11 行正文），
+            # 是用户整段对话看到的最后一屏，不是内部格式化工序。
+            # 用最便宜的档来收尾，省不下多少 token，却押上了最终观感 —— 与
+            # 需求收集步骤下沉 light 后翻车（整轮空回复，稳定复现 2/2）是同一类错误。
+            "model_tier": "main"
         }
     }

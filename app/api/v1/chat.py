@@ -77,15 +77,34 @@ def is_answer_stream_event(event: dict) -> bool:
             {"classifications": [{"agent": "explore", ...}]}
         若不加区分地转发，就会泄漏到聊天正文里，还会被当成 assistant 回复存库。
 
-    判定依据：
+    判定依据一（节点名）：
         langgraph 运行每个节点时会往事件 metadata 写入 "langgraph_node"；
         metadata 合并是新值覆盖旧值（patch_config → _merge_metadata），
         因此子图节点的名字会盖掉外层的 "tools"，可以精确区分来源。
+
+    判定依据二（命名空间层级，2026-10-10 修复）：
+        子图也用 create_agent 构建，模型节点同样叫 "model"，只靠节点名无法区分。
+        真正的分界是 checkpoint_ns 的层级：
+            主图   "model:63d08332-…"                        单层，无 "|"
+            子图   "tools:xxx|explore:yyy|model:zzz"          多层，含 "|"
+        destination_router 调 _explore_agent.ainvoke() 时未传 config，子图的流式
+        事件会一路冒泡到外层 astream_events，节点名又恰好命中白名单，于是内部
+        攻略（带 ### / * 的景点清单）被当成正文发给用户、并写进 messages 入库，
+        下一轮又被当历史重放 —— 既污染体验也推高输入成本。
+        实测一条用例可混入 633 条子图片段（见 scripts/eval_out 的 subgraph_leak）。
     """
     if event.get("event") != "on_chat_model_stream":
         return False
     metadata = event.get("metadata") or {}
-    return metadata.get("langgraph_node") in ANSWER_STREAM_NODES
+    if metadata.get("langgraph_node") not in ANSWER_STREAM_NODES:
+        return False
+    # 含 "|" = 来自嵌套子图，不是主图给用户的正文
+    ns = str(
+        metadata.get("langgraph_checkpoint_ns")
+        or metadata.get("checkpoint_ns")
+        or ""
+    )
+    return "|" not in ns
 
 
 async def get_state_message_count(agent, conversation_id: str) -> int:
