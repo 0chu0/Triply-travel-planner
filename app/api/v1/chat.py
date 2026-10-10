@@ -52,12 +52,15 @@ async def save_message(
     # Conversation.updated_at 上虽然写了 onupdate=func.now()，但 SQLAlchemy 的 onupdate
     # 只在【该 ORM 对象自身被 UPDATE】时才触发 —— 这里只 add Message、压根没碰 Conversation 实例，
     # 所以聊天永远不会触发它，会话位置会一直停在"创建时间"那个点（2026-10-10 修复）。
-    # 用 func.now() 而不是 Python 的 datetime.now()：与 created_at 的默认值保持同一时间源，
-    # 避免应用端与数据库端时区不一致。
+    # ⚠️ 必须用 clock_timestamp() 而不是 now()：PG 的 now() 返回的是【事务开始时间】
+    # （transaction_timestamp），不是语句执行时间。而本函数末尾的 db.refresh(message) 会顺手
+    # 开启一个新事务且一直挂着不提交 —— 于是下一次 save_message 的 UPDATE 就跑在那个旧事务里，
+    # now() 拿到的是几秒前的时刻，刷新直接失效（2026-10-10 实测：两次保存相隔 3 秒，
+    # 两条 UPDATE 的 SQL 都发了，updated_at 却一模一样）。clock_timestamp() 取真实时钟，不受事务影响。
     await db.execute(
         update(Conversation)
         .where(Conversation.id == conversation_id)
-        .values(updated_at=func.now())
+        .values(updated_at=func.clock_timestamp())
     )
 
     await db.commit()
