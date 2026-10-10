@@ -7,7 +7,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse #流式返回
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update, func
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk
 from app.models.base import get_db, async_session_maker
 from app.models.user import User
@@ -46,6 +46,20 @@ async def save_message(
     )
 
     db.add(message)
+
+    # ========== 顺手刷新会话的 updated_at ==========
+    # 列表接口按 updated_at DESC 排序（conversations.py），前端也拿它当"最近活动时间"显示。
+    # Conversation.updated_at 上虽然写了 onupdate=func.now()，但 SQLAlchemy 的 onupdate
+    # 只在【该 ORM 对象自身被 UPDATE】时才触发 —— 这里只 add Message、压根没碰 Conversation 实例，
+    # 所以聊天永远不会触发它，会话位置会一直停在"创建时间"那个点（2026-10-10 修复）。
+    # 用 func.now() 而不是 Python 的 datetime.now()：与 created_at 的默认值保持同一时间源，
+    # 避免应用端与数据库端时区不一致。
+    await db.execute(
+        update(Conversation)
+        .where(Conversation.id == conversation_id)
+        .values(updated_at=func.now())
+    )
+
     await db.commit()
     await db.refresh(message)
 

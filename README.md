@@ -356,6 +356,13 @@ docker compose up -d --build
   - 会话：`POST ""` / `GET ""` / `GET /{id}` / `PATCH /{id}` / `DELETE /{id}`（conversations）
   - 对话：`POST /chat/stream/{conversation_id}`（SSE）、`GET /chat/history/{conversation_id}`
 
+> **会话列表排序**：`GET /api/v1/conversations` 按 `updated_at DESC` 返回，前端直接按这个顺序渲染
+> （并拿 `updated_at` 当"最近活动时间"显示）。`updated_at` 由 `save_message()` 在**每保存一条消息时**
+> 用 `update(Conversation).values(updated_at=func.now())` 显式刷新（2026-10-10 修复）。
+> 注意不能只依赖模型上的 `onupdate=func.now()`：SQLAlchemy 的 `onupdate` 只在该 ORM 对象
+> **自身被 UPDATE** 时触发，而保存消息只 `add(Message)`、不碰 `Conversation` 实例 → 聊天不会触发它，
+> 会话会一直停在"创建时间"那个位置（表现为：刚聊过的旧会话排在后面、时间戳永远显示创建时间）。
+
 ## 十二、Token 配额机制
 
 - `DEFAULT_USER_TOKEN_QUOTA` 控制每账号默认额度；`token_usage.quota_tokens=0` 表示跟随全局默认。
