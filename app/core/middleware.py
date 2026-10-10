@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 from jinja2 import Template
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
@@ -44,7 +45,50 @@ GLOBAL_OUTPUT_RULES = """
 7. 能力边界：本项目不含火车/高铁车次查询。禁止出现"帮你查车次/查高铁票/查火车票"
    这类承诺或引导性提问；铁路出行只能建议用户自行在 12306 购票。
 8. 用简体中文回答，直接给结论与可执行建议，避免冗长客套和重复已说过的内容。
+
+9. 【日期硬约束（最高优先级）】以【当前时间】为唯一时间基准，详见上文【日期使用铁律】：
+   用户已给出明确日期 → 原样采用，禁止替换成别的日期、禁止另给"备选日期"让用户选；
+   只有相对/模糊时间（今天/下周/暑假…）才允许换算；禁止照抄提示词示例里的日期。
+   把用户已经说清的日期改成另一个日期，是最让用户崩溃的一类错误，务必避免。
 """
+
+
+def build_today_context() -> str:
+    """
+    生成【当前时间】注入片段，每轮都会拼进 system prompt（对所有步骤生效）。
+
+    为什么必须有这一段（2026-10-10 真实事故）：
+    用户说「10月15日出发」，模型回「我先按 10月20日 / 10月27日 给你备选」——
+    把用户给的明确日期换成了 prompt 示例里的日期。根因之一是 **模型压根不知道今天是几号**：
+    system prompt 里没有任何时间基准，而步骤 prompt 只在"用户说相对时间"时才要求调日期工具，
+    用户给的是绝对日期 → 模型判定不必查 → 对一个没有年份、没有参照的日期无从判断。
+    把"今天"直接写进上下文后，模型才具备"10月15日 = 5 天后 / 已过去"这类基本判断能力。
+
+    时区：优先 Asia/Shanghai（容器基础镜像可能不带 tzdata，此时 ZoneInfo 会抛错）；
+    失败则回退 datetime.now()，该值由 docker-compose 的 TZ=Asia/Shanghai 环境变量保证正确
+    （见 docker-compose.yml；修之前容器是 UTC，get_today_date 在北京时间 00:00-08:00 会返回昨天）。
+    """
+    try:
+        from zoneinfo import ZoneInfo
+
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    except Exception:
+        now = datetime.now()
+
+    weekday_cn = "一二三四五六日"[now.weekday()]
+    return f"""【当前时间（本系统唯一时间基准，必须以它为准）】
+今天是 {now.year} 年 {now.month} 月 {now.day} 日，星期{weekday_cn}（{now.strftime("%Y-%m-%d")}）。
+
+【日期使用铁律（违反即视为严重错误）】
+1. 用户【已经给出明确日期】时（如「10月15日」「2026-12-01」「3月8号出发」这类含具体月日或完整年月日的说法），
+   必须原样采用用户说的那个日期。禁止改写成另一个日期，禁止"顺便"另给备选日期让用户选，
+   禁止因为自己没查过日历就把它当成"模糊时间"重新解释。
+2. 只有用户说的是【相对或模糊时间】（今天/明天/后天/下周/下个月/春节/五一/暑假/这周几/下周几）
+   时，才允许换算 —— 换算必须以【当前时间】为准；拿不准就调用日期工具取真实日期再确认。
+3. 提示词示例里出现的日期一律是【占位符】（形如 <出发日期>），不是可推荐的真实日期，
+   绝对禁止照抄示例里的日期来回答用户。
+4. 用户只给月日、没给年份时，按【当前时间】所在年份取最近的一个不早于今天的日期；
+   不要反问"你说的是哪一年"，也不要自行跳到下一年。"""
 
 
 class StepConfigMiddleware(AgentMiddleware):
@@ -130,6 +174,9 @@ class StepConfigMiddleware(AgentMiddleware):
         # 如果有长期记忆，追加到提示词末尾
         if memory_prompt:
             system_prompt = f"{system_prompt}\n\n{memory_prompt}"
+
+        # 真实当前日期（全局时间基准，见 build_today_context 的注释）
+        system_prompt = f"{system_prompt}\n\n{build_today_context()}"
 
         # 全局输出规范放最后（模型对结尾指令的跟随更好）
         system_prompt = f"{system_prompt}\n\n{GLOBAL_OUTPUT_RULES}"

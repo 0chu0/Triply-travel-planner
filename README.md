@@ -263,6 +263,10 @@ scp -r E:\travel-planner root@<公网IP>:/root/travel-planner
 > 同机以**独立容器**运行（生产用 `pgvector/pgvector:pg17`，把 5432 映射出来），backend 通过
 > `network_mode: host` 连 `localhost:5432`。若用远程库，同步改 `.env` 里的 `POSTGRES_*`
 > （连接串由它们自动拼装，无需配 `DATABASE_URL`）。Redis 不需要——本项目未使用。
+>
+> ⚠️ **时区**：`docker-compose.yml` 给 backend 设了 `TZ=Asia/Shanghai`。容器默认是 UTC，
+> 没这一行时 `datetime.now()` 比北京时间晚 8 小时 —— `get_today_date` 在北京时间
+> 00:00–08:00 会返回"昨天"，日志时间戳也对不上（2026-10-10 修复）。
 
 **4. 启动**
 
@@ -307,6 +311,24 @@ docker compose up -d --build
 工具不是"全量挂给每个步骤"，而是按 `capability` 标签聚合后，由 `app/agents/handoffs/step_config.py`
 **按流程步骤注入**（例：需求收集阶段刻意不挂天气工具，专注收需求）。
 此外，**日期能力已本地化**：`app/tools/date_tools.py::get_today_date`，不再依赖航班服务的 `getTodayDate`。
+
+#### 当前时间注入与日期铁律（2026-10-10 修复）
+
+`StepConfigMiddleware` 每轮都会把 `build_today_context()` 拼进 system prompt（**对所有步骤生效**）：
+「今天是 2026 年 10 月 10 日，星期六（2026-10-10）」+ 四条【日期使用铁律】；
+`GLOBAL_OUTPUT_RULES` 第 9 条再兜一道「日期硬约束」。时区优先 `ZoneInfo("Asia/Shanghai")`，
+取不到（基础镜像无 tzdata）时回退 `datetime.now()`，后者由 compose 的 `TZ=Asia/Shanghai` 兜底。
+
+为什么必须有这一段（真实事故）：用户说「10月15日出发」，模型回「我先按 10月20日 / 10月27日给你备选」——
+把用户给的明确日期换成了 prompt 示例里的日期。根因之一是**模型不知道今天是几号**（system prompt
+没有时间基准，而步骤 prompt 只在"用户说相对时间"时才要求调日期工具），于是对一个没有年份、
+没有参照的日期无从判断，就近抄了示例锚点。配套的两处收口：
+
+- `step_config.py` 需求收集步骤的确认清单示例，日期已改成占位符 **`<出发日期>`**（原为具体日期 `10月20日`）；
+- 【日期处理要求】新增：用户给了明确日期 → **原样采用，禁止替换、禁止另给备选**；
+  只有"范围"（如下个月中旬）才允许给 2 个区间，且必须由【当前时间】或日期工具推导，不得照抄示例。
+
+实测（qwen3.8-flash，修复后）：「10月15日出发」→ 原样采用不改写；「下周末出发」→ 正确换算为 10月17日（周六）。
 
 密钥配置位置：
 
