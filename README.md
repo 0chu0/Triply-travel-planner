@@ -24,7 +24,7 @@
 | 层 | 选型 |
 |---|---|
 | 语言 / 框架 | Python 3.13, FastAPI, LangGraph, LangChain |
-| 大模型 | 阿里云百炼 Qwen（DashScope 兼容 OpenAI 接口）；按环节分 `main` / `light` 两档，见 §十六 |
+| 大模型 | 阿里云百炼 Qwen（DashScope 兼容 OpenAI 接口） |
 | 存储 | PostgreSQL（16+，生产为 17）+ pgvector，Chroma（本地向量库） |
 | 可观测 | Langfuse（链路追踪 Tracing）；本地评测 CLI（`scripts/run_eval.py`，规则型 Golden Case 回归） |
 | 部署 | Docker Compose，阿里云轻量应用服务器 |
@@ -181,7 +181,7 @@ POSTGRES_PASSWORD=travel123456
 # DATABASE_URL 无需配置：连接串由上面 POSTGRES_* 自动拼装（见 config.py 的 database_url 属性）
 
 # ===== MCP / 第三方 API =====
-AMAP_API_KEY=xxx                      # 高德（地图 POI/路线；天气由自建 weather_server 走高德天气 API）
+AMAP_API_KEY=xxx                      # 高德（地图 POI/路线；天气由自建 weather_server来包高德天气 API）
 TAVILY_API_KEY=tvly-xxx               # Tavily 搜索
 VARIFLIGHT_API_KEY=sk-xxxx            # VariFlight 航班（由 app/mcp_core/client.py 直接 os.getenv 读取，不在 config.Settings 中）
 AIGOHOTEL_MCP_API=mcp_xxx             # AIGOHOTEL 酒店（同上，用作 HTTP header 的 Bearer token）
